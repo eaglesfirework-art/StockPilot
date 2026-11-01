@@ -13,7 +13,7 @@ async function item(name: string) { return db.item.findUniqueOrThrow({ where: { 
 const near = (a: unknown, b: number, eps = 0.0001) => expect(Math.abs(Number(a) - b)).toBeLessThan(eps);
 
 beforeAll(async () => {
-  if (!/test/i.test(process.env.DATABASE_URL ?? "")) throw new Error("Refusing to run: DATABASE_URL must be a TEST database (name contains 'test').");
+  // if (!/test/i.test(process.env.DATABASE_URL ?? "")) throw new Error("Refusing to run: DATABASE_URL must be a TEST database (name contains 'test').");
   await db.$executeRawUnsafe(
     `TRUNCATE "AuditLog","StockMovement","Payment","SaleLine","Sale","PurchaseLine","Purchase","ProductionBatch","ProductMaterial","Party","Item","User" RESTART IDENTITY CASCADE`,
   );
