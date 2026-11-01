@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role           { ADMIN WORKER }
+enum ItemType       { RAW_MATERIAL FINISHED_GOOD }
+enum PartyType      { VENDOR CUSTOMER WORKER }
+enum PaymentKind    { VENDOR_PAYMENT CUSTOMER_RECEIPT LABOUR EXPENSE }
+enum MovementReason { OPENING PURCHASE SALE PRODUCTION_USE PRODUCTION_OUTPUT ADJUSTMENT REVERSAL }
+
+// 1. Users
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(WORKER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// 2. Items: raw materials and finished products
+model Item {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          ItemType
+  unit          String
+  minStock      Decimal  @default(0) @db.Decimal(14, 3)
+  sellingPrice  Decimal? @db.Decimal(14, 2)
+  qtyOnHand     Decimal  @default(0) @db.Decimal(14, 3)
+  avgCost       Decimal  @default(0) @db.Decimal(14, 4)
+  active        Boolean  @default(true)
+  movements     StockMovement[]
+  purchaseLines PurchaseLine[]
+  saleLines     SaleLine[]
+  batches       ProductionBatch[] @relation("BatchProduct")
+  asProduct     ProductMaterial[] @relation("PM_Product")
+  asMaterial    ProductMaterial[] @relation("PM_Material")
+}
+
+// 3. Parties: vendors, customers, workers
+model Party {
+  id             String    @id @default(cuid())
+  name           String
+  type           PartyType
+  phone          String?
+  openingBalance Decimal   @default(0) @db.Decimal(14, 2)
+  active         Boolean   @default(true)
+  purchases      Purchase[]
+  sales          Sale[]
+  payments       Payment[]
+}
+
+// 4-5. Purchases
+model Purchase {
+  id           Int       @id @default(autoincrement())
+  requestId    String    @unique
+  vendorId     String
+  vendor       Party     @relation(fields: [vendorId], references: [id])
+  date         DateTime
+  refNo        String?
+  total        Decimal   @db.Decimal(14, 2)
+  note         String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+  cancelReason String?
+  lines        PurchaseLine[]
+  payments     Payment[]
+  @@index([vendorId, date])
+}
+model PurchaseLine {
+  id         Int      @id @default(autoincrement())
+  purchaseId Int
+  purchase   Purchase @relation(fields: [purchaseId], references: [id])
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id])
+  qty        Decimal  @db.Decimal(14, 3)
+  rate       Decimal  @db.Decimal(14, 4)
+  amount     Decimal  @db.Decimal(14, 2)
+}
+
+// 6-7. Sales
+model Sale {
+  id           Int       @id @default(autoincrement())
+  requestId    String    @unique
+  customerId   String
+  customer     Party     @relation(fields: [customerId], references: [id])
+  date         DateTime
+  total        Decimal   @db.Decimal(14, 2)
+  note         String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+  cancelReason String?
+  lines        SaleLine[]
+  payments     Payment[]
+  @@index([customerId, date])
+}
+model SaleLine {
+  id         Int     @id @default(autoincrement())
+  saleId     Int
+  sale       Sale    @relation(fields: [saleId], references: [id])
+  itemId     String
+  item       Item    @relation(fields: [itemId], references: [id])
+  qty        Decimal @db.Decimal(14, 3)
+  rate       Decimal @db.Decimal(14, 4)
+  amount     Decimal @db.Decimal(14, 2)
+  costAtSale Decimal @db.Decimal(14, 4)
+}
+
+// 8. Money ledger. IN = CUSTOMER_RECEIPT. OUT = VENDOR_PAYMENT, LABOUR, EXPENSE.
+model Payment {
+  id           Int              @id @default(autoincrement())
+  requestId    String           @unique
+  kind         PaymentKind
+  partyId      String?
+  party        Party?           @relation(fields: [partyId], references: [id])
+  amount       Decimal          @db.Decimal(14, 2)
+  date         DateTime
+  note         String?
+  purchaseId   Int?
+  purchase     Purchase?        @relation(fields: [purchaseId], references: [id])
+  saleId       Int?
+  sale         Sale?            @relation(fields: [saleId], references: [id])
+  batchId      Int?
+  batch        ProductionBatch? @relation(fields: [batchId], references: [id])
+  createdById  String
+  createdAt    DateTime         @default(now())
+  cancelledAt  DateTime?
+  cancelReason String?
+  @@index([date, kind])
+}
+
+// 9. Product -> raw material mapping. NO quantity here: quantities are typed in each batch.
+model ProductMaterial {
+  id         Int    @id @default(autoincrement())
+  productId  String
+  product    Item   @relation("PM_Product", fields: [productId], references: [id])
+  materialId String
+  material   Item   @relation("PM_Material", fields: [materialId], references: [id])
+  @@unique([productId, materialId])
+}
+
+// 10. Production batch (inputs are in StockMovement, labour/expenses are in Payment)
+model ProductionBatch {
+  id           Int       @id @default(autoincrement())
+  requestId    String    @unique
+  productId    String
+  product      Item      @relation("BatchProduct", fields: [productId], references: [id])
+  date         DateTime
+  qtyProduced  Decimal   @db.Decimal(14, 3)
+  qtyRejected  Decimal   @default(0) @db.Decimal(14, 3)
+  materialCost Decimal   @db.Decimal(14, 2)
+  labourCost   Decimal   @db.Decimal(14, 2)
+  otherCost    Decimal   @db.Decimal(14, 2)
+  costPerUnit  Decimal   @db.Decimal(14, 4)
+  note         String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+  cancelReason String?
+  payments     Payment[]
+}
+
+// 11. Stock log (add-only). Shows "500 -> 400".
+model StockMovement {
+  id          Int            @id @default(autoincrement())
+  itemId      String
+  item        Item           @relation(fields: [itemId], references: [id])
+  reason      MovementReason
+  qtyChange   Decimal        @db.Decimal(14, 3)
+  qtyBefore   Decimal        @db.Decimal(14, 3)
+  qtyAfter    Decimal        @db.Decimal(14, 3)
+  unitCost    Decimal        @db.Decimal(14, 4)
+  refType     String?
+  refId       String?
+  note        String?
+  createdById String
+  createdAt   DateTime       @default(now())
+  @@index([itemId, createdAt])
+  @@index([refType, refId])
+}
+
+// 12. Audit log
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  detail    Json?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
