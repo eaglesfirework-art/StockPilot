@@ -269,7 +269,7 @@ const PaymentIn = z.object({
 });
 
 export async function billDue(tx: Tx, kind: "purchase" | "sale", id: number) {
-  const bill = kind === "purchase" ? await tx.purchase.findUnique({ where: { id } }) : await tx.sale.findUnique({ where: { id } });
+  const bill: any = kind === "purchase" ? await tx.purchase.findUnique({ where: { id } }) : await tx.sale.findUnique({ where: { id } });
   if (!bill || bill.cancelledAt) throw new UserError("Bill not found or cancelled");
   const paid = await tx.payment.aggregate({
     _sum: { amount: true },

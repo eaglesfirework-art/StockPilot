@@ -7,11 +7,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role           { ADMIN WORKER }
-enum ItemType       { RAW_MATERIAL FINISHED_GOOD }
-enum PartyType      { VENDOR CUSTOMER WORKER }
-enum PaymentKind    { VENDOR_PAYMENT CUSTOMER_RECEIPT LABOUR EXPENSE }
-enum MovementReason { OPENING PURCHASE SALE PRODUCTION_USE PRODUCTION_OUTPUT ADJUSTMENT REVERSAL }
+enum Role {
+  ADMIN
+  WORKER
+}
+
+enum ItemType {
+  RAW_MATERIAL
+  FINISHED_GOOD
+}
+
+enum PartyType {
+  VENDOR
+  CUSTOMER
+  WORKER
+}
+
+enum PaymentKind {
+  VENDOR_PAYMENT
+  CUSTOMER_RECEIPT
+  LABOUR
+  EXPENSE
+}
+
+enum MovementReason {
+  OPENING
+  PURCHASE
+  SALE
+  PRODUCTION_USE
+  PRODUCTION_OUTPUT
+  ADJUSTMENT
+  REVERSAL
+}
 
 // 1. Users
 model User {
@@ -26,15 +53,15 @@ model User {
 
 // 2. Items: raw materials and finished products
 model Item {
-  id            String   @id @default(cuid())
-  name          String   @unique
+  id            String            @id @default(cuid())
+  name          String            @unique
   type          ItemType
   unit          String
-  minStock      Decimal  @default(0) @db.Decimal(14, 3)
-  sellingPrice  Decimal? @db.Decimal(14, 2)
-  qtyOnHand     Decimal  @default(0) @db.Decimal(14, 3)
-  avgCost       Decimal  @default(0) @db.Decimal(14, 4)
-  active        Boolean  @default(true)
+  minStock      Decimal           @default(0) @db.Decimal(14, 3)
+  sellingPrice  Decimal?          @db.Decimal(14, 2)
+  qtyOnHand     Decimal           @default(0) @db.Decimal(14, 3)
+  avgCost       Decimal           @default(0) @db.Decimal(14, 4)
+  active        Boolean           @default(true)
   movements     StockMovement[]
   purchaseLines PurchaseLine[]
   saleLines     SaleLine[]
@@ -45,12 +72,12 @@ model Item {
 
 // 3. Parties: vendors, customers, workers
 model Party {
-  id             String    @id @default(cuid())
+  id             String     @id @default(cuid())
   name           String
   type           PartyType
   phone          String?
-  openingBalance Decimal   @default(0) @db.Decimal(14, 2)
-  active         Boolean   @default(true)
+  openingBalance Decimal    @default(0) @db.Decimal(14, 2)
+  active         Boolean    @default(true)
   purchases      Purchase[]
   sales          Sale[]
   payments       Payment[]
@@ -58,22 +85,24 @@ model Party {
 
 // 4-5. Purchases
 model Purchase {
-  id           Int       @id @default(autoincrement())
-  requestId    String    @unique
+  id           Int            @id @default(autoincrement())
+  requestId    String         @unique
   vendorId     String
-  vendor       Party     @relation(fields: [vendorId], references: [id])
+  vendor       Party          @relation(fields: [vendorId], references: [id])
   date         DateTime
   refNo        String?
-  total        Decimal   @db.Decimal(14, 2)
+  total        Decimal        @db.Decimal(14, 2)
   note         String?
   createdById  String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime       @default(now())
   cancelledAt  DateTime?
   cancelReason String?
   lines        PurchaseLine[]
   payments     Payment[]
+
   @@index([vendorId, date])
 }
+
 model PurchaseLine {
   id         Int      @id @default(autoincrement())
   purchaseId Int
@@ -87,21 +116,23 @@ model PurchaseLine {
 
 // 6-7. Sales
 model Sale {
-  id           Int       @id @default(autoincrement())
-  requestId    String    @unique
+  id           Int        @id @default(autoincrement())
+  requestId    String     @unique
   customerId   String
-  customer     Party     @relation(fields: [customerId], references: [id])
+  customer     Party      @relation(fields: [customerId], references: [id])
   date         DateTime
-  total        Decimal   @db.Decimal(14, 2)
+  total        Decimal    @db.Decimal(14, 2)
   note         String?
   createdById  String
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime   @default(now())
   cancelledAt  DateTime?
   cancelReason String?
   lines        SaleLine[]
   payments     Payment[]
+
   @@index([customerId, date])
 }
+
 model SaleLine {
   id         Int     @id @default(autoincrement())
   saleId     Int
@@ -134,6 +165,7 @@ model Payment {
   createdAt    DateTime         @default(now())
   cancelledAt  DateTime?
   cancelReason String?
+
   @@index([date, kind])
 }
 
@@ -144,6 +176,7 @@ model ProductMaterial {
   product    Item   @relation("PM_Product", fields: [productId], references: [id])
   materialId String
   material   Item   @relation("PM_Material", fields: [materialId], references: [id])
+
   @@unique([productId, materialId])
 }
 
@@ -183,6 +216,7 @@ model StockMovement {
   note        String?
   createdById String
   createdAt   DateTime       @default(now())
+
   @@index([itemId, createdAt])
   @@index([refType, refId])
 }
@@ -196,5 +230,6 @@ model AuditLog {
   entityId  String?
   detail    Json?
   createdAt DateTime @default(now())
+
   @@index([createdAt])
 }
