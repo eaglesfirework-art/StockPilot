@@ -9,6 +9,8 @@ const nav: [string, string][] = [
   ["/admin/raw-materials", "Raw Materials"], ["/admin/products", "Products"], ["/admin/transactions", "Transactions"], ["/admin/reports", "Reports"], ["/admin/users", "Users"],["/admin/log", "Log"]
 ];
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const u = await pageUser("ADMIN");
   return (

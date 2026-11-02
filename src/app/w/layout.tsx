@@ -2,6 +2,8 @@ import Link from "next/link";
 import { pageUser } from "@/server/auth";
 import { logoutAction } from "@/server/actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function WorkerLayout({ children }: { children: React.ReactNode }) {
   const u = await pageUser();
   return (
