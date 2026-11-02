@@ -1,10 +1,21 @@
 // Admin-only master data: items, parties, product mapping, users.
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { UserError } from "./errors";
-import { audit } from "./core";
-import { hashPassword } from "./auth";
+import { audit, type CancelKind } from "./core";
+import { hashPassword, verifyPassword } from "./auth";
 import { D } from "../lib/dec";
+import { normUnit } from "../lib/units";
+import { normalizeIndianPhone, PHONE_MSG } from "../lib/phone";
+
+// Optional Indian mobile number. Saved as +91XXXXXXXXXX. Empty means "no phone".
+const phoneOpt = z.string().trim().optional().transform((v, ctx) => {
+  if (!v) return undefined;
+  const p = normalizeIndianPhone(v);
+  if (!p) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: PHONE_MSG }); return z.NEVER; }
+  return p;
+});
 
 const numStr = z.union([z.string(), z.number()]).transform((v, ctx) => {
   const s = String(v).trim();
@@ -24,18 +35,38 @@ export async function createItem(userId: string, raw: unknown) {
   }).parse(raw);
   const exists = await db.item.findUnique({ where: { name: i.name } });
   if (exists) throw new UserError("An item with this name already exists");
+  const unit = normUnit(i.unit);
+  const sellingPrice = i.type === "FINISHED_GOOD" ? i.sellingPrice : undefined;
   return db.$transaction(async (tx) => {
-    const item = await tx.item.create({ data: { name: i.name, type: i.type, unit: i.unit, minStock: i.minStock ?? 0, sellingPrice: i.sellingPrice } });
+    const item = await tx.item.create({ data: { name: i.name, type: i.type, unit, minStock: i.minStock ?? 0, sellingPrice } });
     await audit(tx, userId, "ITEM_CREATE", "Item", item.id, { name: i.name, type: i.type });
     return item;
   });
 }
 
 export async function updateItem(userId: string, raw: unknown) {
-  const i = z.object({ id: z.string().min(1), minStock: optNum, sellingPrice: optNum, active: z.boolean() }).parse(raw);
+  const i = z.object({
+    id: z.string().min(1),
+    name: z.string().trim().min(1, "Enter a name"),
+    unit: z.string().trim().min(1, "Enter a unit, e.g. kg").optional(),
+    minStock: optNum, sellingPrice: optNum, active: z.boolean(),
+    materialIds: z.array(z.string()).optional(),
+  }).parse(raw);
   return db.$transaction(async (tx) => {
-    const item = await tx.item.update({ where: { id: i.id }, data: { minStock: i.minStock ?? 0, sellingPrice: i.sellingPrice ?? null, active: i.active } });
-    await audit(tx, userId, "ITEM_UPDATE", "Item", i.id, { minStock: i.minStock?.toString(), sellingPrice: i.sellingPrice?.toString(), active: i.active });
+    const cur = await tx.item.findUnique({ where: { id: i.id } });
+    if (!cur) throw new UserError("Item not found");
+    if (i.name !== cur.name && (await tx.item.findUnique({ where: { name: i.name } })))
+      throw new UserError("An item with this name already exists");
+    const unit = i.unit ? normUnit(i.unit) : cur.unit;
+    if (unit !== cur.unit && (await tx.stockMovement.count({ where: { itemId: cur.id } })) > 0)
+      throw new UserError("Unit cannot change once the item has stock history");
+    const sellingPrice = cur.type === "FINISHED_GOOD" ? i.sellingPrice ?? null : null;
+    const item = await tx.item.update({ where: { id: i.id }, data: { name: i.name, unit, minStock: i.minStock ?? 0, sellingPrice, active: i.active } });
+    if (i.materialIds) await applyMapping(tx, userId, cur, i.materialIds);
+    await audit(tx, userId, "ITEM_UPDATE", "Item", i.id, {
+      name: i.name, unit, minStock: i.minStock?.toString(), sellingPrice: sellingPrice?.toString(), active: i.active,
+      ...(i.name !== cur.name && { renamedFrom: cur.name }), ...(unit !== cur.unit && { unitWas: cur.unit }),
+    });
     return item;
   });
 }
@@ -44,46 +75,170 @@ export async function createParty(userId: string, raw: unknown) {
   const i = z.object({
     name: z.string().trim().min(1, "Enter a name"),
     type: z.enum(["VENDOR", "CUSTOMER", "WORKER"]),
-    phone: z.string().trim().optional(),
+    phone: phoneOpt,
     openingBalance: optNum,
   }).parse(raw);
   return db.$transaction(async (tx) => {
-    const p = await tx.party.create({ data: { name: i.name, type: i.type, phone: i.phone || undefined, openingBalance: i.openingBalance ?? 0 } });
+    const p = await tx.party.create({ data: { name: i.name, type: i.type, phone: i.phone, openingBalance: i.openingBalance ?? 0 } });
     await audit(tx, userId, "PARTY_CREATE", "Party", p.id, { name: i.name, type: i.type });
     return p;
   });
 }
 
 // Product -> raw materials. No quantities here. Quantities are typed in each batch.
-export async function setMapping(userId: string, productId: string, materialIds: string[]) {
-  const product = await db.item.findUnique({ where: { id: productId } });
-  if (!product || product.type !== "FINISHED_GOOD") throw new UserError("Choose a finished product");
-  const mats = await db.item.findMany({ where: { id: { in: materialIds } } });
-  if (mats.length !== new Set(materialIds).size || mats.some((m) => m.type !== "RAW_MATERIAL"))
-    throw new UserError("Only raw materials can be mapped");
-  return db.$transaction(async (tx) => {
-    await tx.productMaterial.deleteMany({ where: { productId, materialId: { notIn: materialIds } } });
-    for (const materialId of materialIds)
-      await tx.productMaterial.upsert({ where: { productId_materialId: { productId, materialId } }, create: { productId, materialId }, update: {} });
-    await audit(tx, userId, "MAPPING_UPDATE", "Item", productId, { materials: mats.map((m) => m.name) });
-  });
+async function applyMapping(tx: Prisma.TransactionClient, userId: string, product: { id: string; type: string }, materialIds: string[]) {
+  if (product.type !== "FINISHED_GOOD") throw new UserError("Only products can have raw materials");
+  const ids = [...new Set(materialIds)];
+  const mats = await tx.item.findMany({ where: { id: { in: ids } } });
+  if (mats.length !== ids.length || mats.some((m) => m.type !== "RAW_MATERIAL")) throw new UserError("Only raw materials can be chosen");
+  await tx.productMaterial.deleteMany({ where: { productId: product.id, materialId: { notIn: ids } } });
+  for (const materialId of ids)
+    await tx.productMaterial.upsert({ where: { productId_materialId: { productId: product.id, materialId } }, create: { productId: product.id, materialId }, update: {} });
+  await audit(tx, userId, "MAPPING_UPDATE", "Item", product.id, { materials: mats.map((m) => m.name) });
 }
 
 export async function createUser(adminId: string, raw: unknown) {
   const i = z.object({
     name: z.string().trim().min(1, "Enter a name"),
     email: z.string().trim().toLowerCase().email("Enter a valid email"),
+    phone: phoneOpt,
     role: z.enum(["ADMIN", "WORKER"]),
     password: z.string().min(8, "Password needs at least 8 characters"),
   }).parse(raw);
   if (await db.user.findUnique({ where: { email: i.email } })) throw new UserError("This email is already used");
-  const u = await db.user.create({ data: { name: i.name, email: i.email, role: i.role, passwordHash: await hashPassword(i.password) } });
+  const u = await db.user.create({ data: { name: i.name, email: i.email, phone: i.phone, role: i.role, passwordHash: await hashPassword(i.password) } });
   await db.$transaction((tx) => audit(tx, adminId, "USER_CREATE", "User", u.id, { email: i.email, role: i.role }));
   return u;
 }
 
-export async function setUserActive(adminId: string, userId: string, active: boolean) {
-  if (userId === adminId && !active) throw new UserError("You cannot deactivate yourself");
-  await db.user.update({ where: { id: userId }, data: { active } });
-  await db.$transaction((tx) => audit(tx, adminId, active ? "USER_ACTIVATE" : "USER_DEACTIVATE", "User", userId));
+const nameField = z.string().trim().min(1, "Enter a name");
+const emailField = z.string().trim().toLowerCase().email("Enter a valid email");
+
+async function otherActiveAdmins(id: string) {
+  return db.user.count({ where: { role: "ADMIN", active: true, id: { not: id } } });
+}
+
+export async function updateUser(adminId: string, raw: unknown) {
+  const i = z.object({
+    id: z.string().min(1), name: nameField, email: emailField, phone: phoneOpt,
+    role: z.enum(["ADMIN", "WORKER"]), active: z.boolean(),
+    password: z.string().optional().refine((v) => !v || v.length >= 8, "New password needs at least 8 characters"),
+  }).parse(raw);
+  const cur = await db.user.findUnique({ where: { id: i.id } });
+  if (!cur) throw new UserError("User not found");
+  if (i.email !== cur.email && (await db.user.findUnique({ where: { email: i.email } }))) throw new UserError("This email is already used");
+  const losesAdmin = cur.role === "ADMIN" && cur.active && (i.role !== "ADMIN" || !i.active);
+  if (losesAdmin && i.id === adminId) throw new UserError("You cannot deactivate yourself or remove your own admin role");
+  if (losesAdmin && (await otherActiveAdmins(i.id)) === 0) throw new UserError("Keep at least one active admin");
+  const passwordHash = i.password ? await hashPassword(i.password) : undefined;
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: i.id }, data: { name: i.name, email: i.email, phone: i.phone ?? null, role: i.role, active: i.active, ...(passwordHash && { passwordHash }) } });
+    await audit(tx, adminId, "USER_UPDATE", "User", i.id, { email: i.email, role: i.role, active: i.active, ...(passwordHash && { passwordReset: true }) });
+  });
+}
+
+// Ids of users who have saved anything (entries or log rows). These can only be deactivated, never deleted.
+export async function usersWithActivity() {
+  const by = (rows: { createdById: string }[]) => rows.map((r) => r.createdById);
+  const [aud, sm, pu, sa, pa, ba] = await Promise.all([
+    db.auditLog.groupBy({ by: ["userId"] }),
+    db.stockMovement.groupBy({ by: ["createdById"] }), db.purchase.groupBy({ by: ["createdById"] }), db.sale.groupBy({ by: ["createdById"] }),
+    db.payment.groupBy({ by: ["createdById"] }), db.productionBatch.groupBy({ by: ["createdById"] }),
+  ]);
+  return new Set([...aud.map((r) => r.userId ?? ""), ...by(sm), ...by(pu), ...by(sa), ...by(pa), ...by(ba)]);
+}
+
+export async function deleteUser(adminId: string, id: string) {
+  if (id === adminId) throw new UserError("You cannot delete yourself");
+  const cur = await db.user.findUnique({ where: { id } });
+  if (!cur) throw new UserError("User not found");
+  if (cur.role === "ADMIN" && cur.active && (await otherActiveAdmins(id)) === 0) throw new UserError("Keep at least one active admin");
+  if ((await usersWithActivity()).has(id)) throw new UserError(`${cur.name} has activity in the system. Deactivate instead.`);
+  await db.$transaction(async (tx) => {
+    await tx.user.delete({ where: { id } });
+    await audit(tx, adminId, "USER_DELETE", "User", id, { email: cur.email, name: cur.name });
+  });
+}
+
+export async function updateProfile(userId: string, raw: unknown) {
+  const i = z.object({ name: nameField, phone: phoneOpt }).parse(raw);
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { name: i.name, phone: i.phone ?? null } });
+    await audit(tx, userId, "PROFILE_UPDATE", "User", userId, { name: i.name, phone: i.phone ?? null });
+  });
+}
+
+export async function changePassword(userId: string, raw: unknown) {
+  const i = z.object({
+    current: z.string().min(1, "Enter your current password"),
+    next: z.string().min(8, "New password needs at least 8 characters"),
+    confirm: z.string(),
+  }).parse(raw);
+  if (i.next !== i.confirm) throw new UserError("The new passwords do not match");
+  if (i.next === i.current) throw new UserError("The new password must be different");
+  const u = await db.user.findUnique({ where: { id: userId } });
+  if (!u || !(await verifyPassword(i.current, u.passwordHash))) throw new UserError("Current password is wrong");
+  const passwordHash = await hashPassword(i.next);
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+    await audit(tx, userId, "PASSWORD_CHANGE", "User", userId);
+  });
+}
+
+export async function updateParty(userId: string, raw: unknown) {
+  const i = z.object({ id: z.string().min(1), name: nameField, phone: phoneOpt, openingBalance: optNum, active: z.boolean() }).parse(raw);
+  await db.$transaction(async (tx) => {
+    const cur = await tx.party.findUnique({ where: { id: i.id } });
+    if (!cur) throw new UserError("Not found");
+    const openingBalance = cur.type === "WORKER" ? cur.openingBalance : i.openingBalance ?? 0;
+    await tx.party.update({ where: { id: i.id }, data: { name: i.name, phone: i.phone ?? null, openingBalance, active: i.active } });
+    await audit(tx, userId, "PARTY_UPDATE", "Party", i.id, { name: i.name, phone: i.phone ?? null, openingBalance: openingBalance.toString(), active: i.active });
+  });
+}
+
+export async function deleteParty(userId: string, id: string) {
+  const p = await db.party.findUnique({ where: { id }, include: { _count: { select: { purchases: true, sales: true, payments: true } } } });
+  if (!p) throw new UserError("Not found");
+  const c = p._count;
+  if (c.purchases + c.sales + c.payments > 0) throw new UserError(`${p.name} has transactions. Mark it inactive instead.`);
+  await db.$transaction(async (tx) => {
+    await tx.party.delete({ where: { id } });
+    await audit(tx, userId, "PARTY_DELETE", "Party", id, { name: p.name, type: p.type });
+  });
+}
+
+export async function deleteItem(userId: string, id: string) {
+  const it = await db.item.findUnique({ where: { id }, include: { _count: { select: { movements: true, purchaseLines: true, saleLines: true, batches: true } } } });
+  if (!it) throw new UserError("Item not found");
+  const c = it._count;
+  if (c.movements + c.purchaseLines + c.saleLines + c.batches > 0) throw new UserError(`${it.name} has history. Mark it inactive instead.`);
+  await db.$transaction(async (tx) => {
+    await tx.productMaterial.deleteMany({ where: { OR: [{ productId: id }, { materialId: id }] } });
+    await tx.item.delete({ where: { id } });
+    await audit(tx, userId, "ITEM_DELETE", "Item", id, { name: it.name, type: it.type });
+  });
+}
+
+// Only the free-text note can be changed on a saved entry. Stock and money are calculated from entries, so those are cancelled and re-entered.
+export async function updateDocNote(userId: string, kind: CancelKind, id: number, noteRaw: string) {
+  const note = noteRaw.trim().slice(0, 500) || null;
+  await db.$transaction(async (tx) => {
+    let before: string | null = null;
+    const frozen = () => new UserError("This entry is cancelled and cannot be changed");
+    const missing = () => new UserError("Entry not found");
+    if (kind === "purchase") {
+      const r = await tx.purchase.findUnique({ where: { id } }); if (!r) throw missing(); if (r.cancelledAt) throw frozen();
+      before = r.note; await tx.purchase.update({ where: { id }, data: { note } });
+    } else if (kind === "sale") {
+      const r = await tx.sale.findUnique({ where: { id } }); if (!r) throw missing(); if (r.cancelledAt) throw frozen();
+      before = r.note; await tx.sale.update({ where: { id }, data: { note } });
+    } else if (kind === "batch") {
+      const r = await tx.productionBatch.findUnique({ where: { id } }); if (!r) throw missing(); if (r.cancelledAt) throw frozen();
+      before = r.note; await tx.productionBatch.update({ where: { id }, data: { note } });
+    } else {
+      const r = await tx.payment.findUnique({ where: { id } }); if (!r) throw missing(); if (r.cancelledAt) throw frozen();
+      before = r.note; await tx.payment.update({ where: { id }, data: { note } });
+    }
+    await audit(tx, userId, "NOTE_EDIT", kind, String(id), { before, after: note });
+  });
 }

@@ -1,15 +1,21 @@
 import { notFound } from "next/navigation";
 import { db } from "@/server/db";
 import { ActionForm } from "@/components/ActionForm";
+import { DateFilter } from "@/components/DateFilter";
+import { Pager } from "@/components/Pager";
 import { partyPaymentAction } from "@/server/actions";
 import { billDue } from "@/server/core";
 import { ZERO } from "@/lib/dec";
+import { PAGE, pageOf } from "@/server/queries";
+import { dateRange, qs } from "@/lib/filters";
 import { dOnly, docNo, inr, todayISO } from "@/lib/fmt";
 
-export default async function Statement({ params }: { params: { id: string } }) {
+export default async function Statement({ params, searchParams }: { params: { id: string }; searchParams: { from?: string; to?: string; page?: string } }) {
   const p = await db.party.findUnique({ where: { id: params.id } });
   if (!p) notFound();
   const cust = p.type === "CUSTOMER", vend = p.type === "VENDOR";
+  const range = dateRange(searchParams);
+  const page = pageOf(searchParams);
 
   const bills = vend
     ? await db.purchase.findMany({ where: { vendorId: p.id } })
@@ -24,6 +30,9 @@ export default async function Statement({ params }: { params: { id: string } }) 
 
   let running = Number(p.openingBalance);
   const withBal = rows.map((r) => { if (!r.cancelled) running += r.amt; return { ...r, bal: running }; });
+  const inPeriod = withBal.filter((r) => r.date >= range.gte && r.date <= range.lte);
+  const inRange = inPeriod.slice((page - 1) * PAGE, page * PAGE);
+  const broughtForward = withBal.filter((r) => r.date < range.gte && !r.cancelled).reduce((a, r) => a + r.amt, Number(p.openingBalance));
 
   // Open bills for the "pay this bill" choice
   const open: { id: number; label: string }[] = [];
@@ -37,7 +46,7 @@ export default async function Statement({ params }: { params: { id: string } }) 
   return (
     <>
       <h1>{p.name}</h1>
-      <p className="muted">{p.type.toLowerCase()} {p.phone && `· ${p.phone}`}</p>
+      <p className="muted">{p.type === "WORKER" ? "labour" : p.type.toLowerCase()} {p.phone && `· ${p.phone}`}</p>
       {!p.type.startsWith("W") && <p>{cust ? "Owes us" : "We owe"}: <b>{inr(running)}</b></p>}
 
       {(vend || cust) && (
@@ -54,15 +63,18 @@ export default async function Statement({ params }: { params: { id: string } }) 
       )}
 
       <h2>Statement</h2>
+      <DateFilter range={range} />
       <div className="table-wrap"><table>
         <thead><tr><th>Date</th><th>Document</th><th>Type</th><th className="r">Amount</th>{(vend || cust) && <th className="r">Balance</th>}</tr></thead>
         <tbody>
-          {(vend || cust) && <tr><td></td><td>Opening balance</td><td></td><td></td><td className="r">{inr(p.openingBalance)}</td></tr>}
-          {withBal.map((r) => (
+          {(vend || cust) && <tr><td></td><td>{range.gte.getTime() <= (withBal[0]?.date.getTime() ?? Infinity) ? "Opening balance" : "Balance brought forward"}</td><td></td><td></td><td className="r">{inr(broughtForward)}</td></tr>}
+          {inRange.map((r) => (
             <tr key={r.doc} className={r.cancelled ? "cancelled" : ""}>
               <td>{dOnly(r.date)}</td><td>{r.doc}</td><td>{r.label}</td><td className="r">{inr(Math.abs(r.amt))}</td>{(vend || cust) && <td className="r">{r.cancelled ? "" : inr(r.bal)}</td>}
             </tr>))}
+          {inRange.length === 0 && <tr><td colSpan={vend || cust ? 5 : 4} className="muted">No entries in this period.</td></tr>}
         </tbody></table></div>
+      <Pager page={page} hasMore={inPeriod.length > page * PAGE} base={`/admin/party/${p.id}${qs({ from: range.from, to: range.to })}`} />
     </>
   );
 }

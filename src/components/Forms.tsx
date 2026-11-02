@@ -115,7 +115,7 @@ export function ProductionForm({
       <h3>Labour</h3>
       {labour.map((l, i) => (
         <div className="card line" key={i}>
-          <label>Worker<select value={l.partyId} onChange={(e) => setLabour(labour.map((x, k) => (k === i ? { ...x, partyId: e.target.value } : x)))}><option value="">Choose…</option>{workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
+          <label>Labour<select value={l.partyId} onChange={(e) => setLabour(labour.map((x, k) => (k === i ? { ...x, partyId: e.target.value } : x)))}><option value="">Choose…</option>{workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
           <div className="row2">
             <label>Amount (₹)<Num v={l.amount} set={(v) => setLabour(labour.map((x, k) => (k === i ? { ...x, amount: v } : x)))} /></label>
             <label>Note<input value={l.note} onChange={(e) => setLabour(labour.map((x, k) => (k === i ? { ...x, note: e.target.value } : x)))} /></label>

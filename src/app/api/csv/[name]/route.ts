@@ -4,6 +4,7 @@ import { getUser } from "@/server/auth";
 import { moneyFlow, partyBalances } from "@/server/queries";
 import { ZERO } from "@/lib/dec";
 import { docNo } from "@/lib/fmt";
+import { dateRange } from "@/lib/filters";
 
 const esc = (v: unknown) => {
   const s = v === null || v === undefined ? "" : String(v);
@@ -16,9 +17,9 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
   const u = await getUser();
   if (!u || u.role !== "ADMIN") return new Response("Not allowed", { status: 403 });
   const sp = req.nextUrl.searchParams;
-  const gte = sp.get("from") ? new Date(`${sp.get("from")}T00:00:00Z`) : undefined;
-  const lte = sp.get("to") ? new Date(`${sp.get("to")}T23:59:59.999Z`) : undefined;
-  const dateWhere = gte || lte ? { date: { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) } } : {};
+  // Without dates, reports cover the last 7 days. Pick wider dates for older data.
+  const { gte, lte } = dateRange({ from: sp.get("from") ?? undefined, to: sp.get("to") ?? undefined });
+  const dateWhere = { date: { gte, lte } };
   let rows: unknown[][] = [];
 
   switch (params.name) {
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
       break;
     }
     case "money-flow": {
-      const f = await moneyFlow(gte ?? new Date(0), lte ?? new Date());
+      const f = await moneyFlow(gte, lte);
       rows = [["Day", "Money in", "Money out", "Net"], ...f.series.map((s) => [s.day, s.in, s.out, s.in - s.out]),
         ["TOTAL", f.in, f.out, f.net], ["Vendors", "", f.by.VENDOR_PAYMENT, ""], ["Labour", "", f.by.LABOUR, ""], ["Expenses", "", f.by.EXPENSE, ""]];
       break;
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
     }
     case "labour": {
       const ps = await db.payment.findMany({ where: { kind: "LABOUR", cancelledAt: null, ...dateWhere }, orderBy: { id: "asc" }, include: { party: true } });
-      rows = [["Date", "Worker", "Amount", "Batch", "Note"], ...ps.map((p) => [day(p.date), p.party?.name, p.amount, p.batchId ? docNo("BAT", p.batchId) : "", p.note])];
+      rows = [["Date", "Labour", "Amount", "Batch", "Note"], ...ps.map((p) => [day(p.date), p.party?.name, p.amount, p.batchId ? docNo("BAT", p.batchId) : "", p.note])];
       break;
     }
     case "production": {

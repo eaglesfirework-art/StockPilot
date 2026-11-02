@@ -4,6 +4,9 @@ type Numish = number | string | { toString(): string };
 export const inr = (v: Numish) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(v.toString()));
 
+export const inr0 = (v: Numish) =>
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(v.toString()));
+
 export const num = (v: Numish) =>
   Number(v.toString()).toLocaleString("en-IN", { maximumFractionDigits: 3 });
 

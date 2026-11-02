@@ -8,7 +8,7 @@ export default async function WorkerLayout({ children }: { children: React.React
     <div className="wk">
       <header>
         <Link href="/w"><b>StockPilot</b></Link>
-        <span className="muted">{u.name}{u.role === "ADMIN" && <> · <Link href="/admin">Admin</Link></>}
+        <span className="muted">{u.name}{u.role === "ADMIN" && <> · <Link href="/admin">Admin panel</Link></>} · <Link href="/w/profile">Profile</Link>
           <form action={logoutAction} style={{ display: "inline" }}> · <button className="link">Log out</button></form></span>
       </header>
       {children}

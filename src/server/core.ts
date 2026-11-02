@@ -183,7 +183,7 @@ const BatchIn = z.object({
   materials: z.array(z.object({ itemId: z.string().min(1), qty: pos })).min(1, "Enter the materials used"),
   qtyProduced: pos,
   qtyRejected: nonneg.optional(),
-  labour: z.array(z.object({ partyId: z.string().min(1, "Choose a worker"), amount: pos, note: text })).default([]),
+  labour: z.array(z.object({ partyId: z.string().min(1, "Choose a labour"), amount: pos, note: text })).default([]),
   expenses: z.array(z.object({ note: z.string().trim().min(1, "Describe the expense"), amount: pos })).default([]),
 });
 

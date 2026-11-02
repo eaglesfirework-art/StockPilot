@@ -6,7 +6,10 @@ import { db } from "./db";
 import { UserError } from "./errors";
 import { checkLogin, endSession, requireAdmin, requireUser, startSession } from "./auth";
 import { adjustStock, audit, cancelDoc, CancelKind, createBatch, createPayment, createPurchase, createSale } from "./core";
-import { createItem, createParty, createUser, setMapping, setUserActive, updateItem } from "./master";
+import {
+  changePassword, createItem, createParty, createUser, deleteItem, deleteParty, deleteUser,
+  updateDocNote, updateItem, updateParty, updateProfile, updateUser,
+} from "./master";
 import type { Result } from "../lib/types";
 import { docNo } from "../lib/fmt";
 
@@ -97,14 +100,18 @@ export async function adjustAction(_p: Result | null, fd: FormData) {
 export async function itemAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await createItem(u.id, { name: s(fd, "name"), type: s(fd, "type"), unit: s(fd, "unit"), minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice") });
-    return "Item added";
+    const it = await createItem(u.id, { name: s(fd, "name"), type: s(fd, "type"), unit: s(fd, "unit"), minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice") });
+    return `${it.name} added to ${it.type === "RAW_MATERIAL" ? "Raw Materials" : "Products"}`;
   });
 }
 export async function itemUpdateAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await updateItem(u.id, { id: s(fd, "id"), minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice"), active: fd.get("active") === "on" });
+    await updateItem(u.id, {
+      id: s(fd, "id"), name: s(fd, "name"), unit: fd.has("unit") ? s(fd, "unit") : undefined,
+      minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice"), active: fd.get("active") === "on",
+      materialIds: fd.get("withMapping") === "1" ? fd.getAll("m").map(String) : undefined,
+    });
     return "Saved";
   });
 }
@@ -115,24 +122,51 @@ export async function partyAction(_p: Result | null, fd: FormData) {
     return "Added";
   });
 }
-export async function mappingAction(_p: Result | null, fd: FormData) {
-  return run(async () => {
-    const u = await requireAdmin();
-    await setMapping(u.id, s(fd, "productId"), fd.getAll("m").map(String));
-    return "Mapping saved";
-  });
-}
 export async function userAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await createUser(u.id, { name: s(fd, "name"), email: s(fd, "email"), role: s(fd, "role"), password: s(fd, "password") });
+    await createUser(u.id, { name: s(fd, "name"), email: s(fd, "email"), phone: s(fd, "phone"), role: s(fd, "role"), password: s(fd, "password") });
     return "User created";
   });
 }
-export async function userToggleAction(_p: Result | null, fd: FormData) {
+export async function userUpdateAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await setUserActive(u.id, s(fd, "id"), s(fd, "active") === "true");
+    await updateUser(u.id, {
+      id: s(fd, "id"), name: s(fd, "name"), email: s(fd, "email"), phone: s(fd, "phone"), role: s(fd, "role"),
+      active: fd.get("active") === "on", password: s(fd, "password"),
+    });
     return "Saved";
+  });
+}
+export async function userDeleteAction(_p: Result | null, fd: FormData) {
+  return run(async () => { const u = await requireAdmin(); await deleteUser(u.id, s(fd, "id")); return "User deleted"; });
+}
+export async function partyUpdateAction(_p: Result | null, fd: FormData) {
+  return run(async () => {
+    const u = await requireAdmin();
+    await updateParty(u.id, { id: s(fd, "id"), name: s(fd, "name"), phone: s(fd, "phone"), openingBalance: s(fd, "openingBalance"), active: fd.get("active") === "on" });
+    return "Saved";
+  });
+}
+export async function partyDeleteAction(_p: Result | null, fd: FormData) {
+  return run(async () => { const u = await requireAdmin(); await deleteParty(u.id, s(fd, "id")); return "Deleted"; });
+}
+export async function itemDeleteAction(_p: Result | null, fd: FormData) {
+  return run(async () => { const u = await requireAdmin(); await deleteItem(u.id, s(fd, "id")); return "Deleted"; });
+}
+export async function noteAction(kind: CancelKind, id: number, note: string) {
+  return run(async () => { const u = await requireAdmin(); await updateDocNote(u.id, kind, id, note); return "Note saved"; });
+}
+
+// ----- my profile (any logged-in user, own record only) -----
+export async function profileAction(_p: Result | null, fd: FormData) {
+  return run(async () => { const u = await requireUser(); await updateProfile(u.id, { name: s(fd, "name"), phone: s(fd, "phone") }); return "Profile saved"; });
+}
+export async function passwordAction(_p: Result | null, fd: FormData) {
+  return run(async () => {
+    const u = await requireUser();
+    await changePassword(u.id, { current: s(fd, "current"), next: s(fd, "next"), confirm: s(fd, "confirm") });
+    return "Password changed";
   });
 }

@@ -8,11 +8,11 @@ The full plan is in `docs/PLAN.md`.
 
 | Area | Screens |
 |---|---|
-| Worker (`/w`) | Receive materials, Production batch, Labour payment, My entries |
-| Admin (`/admin`) | Dashboard, Stock (+ item log, adjustments), Log (stock + audit), Customers, Vendors, Workers, party statements and payments, Purchases, Sales (+ new sale), Production, Payments, Items, **Product mapping**, Users, Reports (CSV) |
+| Worker (`/w`) | Receive materials, Production batch, Labour payment, My entries, My profile |
+| Admin (`/admin`) | Dashboard (sales, profit, cash flow, production cost, dues and stock, each compared with the previous period), Stock (+ item log, adjustments), Log (stock + audit), Customers, Vendors, Labours (edit, delete, statements, payments), Transactions (Purchases, Sales, Production, Payments), **Raw Materials**, **Products (with raw-material mapping)**, Users (edit, delete, password reset), My profile, Reports (CSV) |
 
-**Product mapping:** the admin creates raw materials and finished products (Items), then ticks which raw
-materials each product uses (Product mapping). There is no quantity in the mapping. The worker types the
+**Product mapping:** the admin creates raw materials and products, then ticks which raw
+materials each product uses on the Products page. There is no quantity in the mapping. The worker types the
 quantity used for each material in every production batch.
 
 ## Run it (Node 20+ and Docker)
@@ -66,5 +66,9 @@ The key check: cost per unit = **18.4211**.
 
 - No offline mode and no service worker. Online only.
 - Cancelling an old purchase does not restate the cost of earlier batches.
-- No password reset screen (admin can create a new user). No Excel/PDF export (CSV only).
+- Anyone can change their own password in My profile; an admin can reset others in Users. No Excel/PDF export (CSV only).
+- Works on phones: the admin menu slides out from a top bar and tables become cards below 700px (list rows show just the name until tapped).
+- History pages (Transactions, Log, statements, Reports) show the last 7 days unless other dates are picked.
+- Phone numbers must be Indian mobiles and are stored as +91XXXXXXXXXX.
+- Items, parties and users can be deleted only if they were never used; otherwise mark them inactive. Saved entries are cancelled, not edited (only the note can be edited).
 - Reports show the columns in the plan except "oldest unpaid bill age".
