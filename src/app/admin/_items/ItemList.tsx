@@ -8,7 +8,7 @@ import { itemDeleteAction, itemUpdateAction } from "@/server/actions";
 import { LIST_PAGE, pageOf } from "@/server/queries";
 import { qs } from "@/lib/filters";
 import { UNITS } from "@/lib/units";
-import { inr, num } from "@/lib/fmt";
+import { num } from "@/lib/fmt";
 
 export type ItemFilters = { q?: string; status?: string; page?: string };
 
@@ -27,7 +27,7 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
   ]);
   const rows = found.slice(0, LIST_PAGE);
   const maps = finished ? await db.productMaterial.findMany({ where: { productId: { in: rows.map((r) => r.id) } } }) : [];
-  const cols = finished ? 7 : 6;
+  const cols = 6;
   const path = finished ? "/admin/products" : "/admin/raw-materials";
   const entity = finished ? "product" : "raw material";
 
@@ -35,7 +35,7 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
     <>
       <h1>{finished ? "Products" : "Raw Materials"}</h1>
       <h2>{finished ? "Add product" : "Add raw material"}</h2>
-      <ItemAddForm kind={kind} />
+      <ItemAddForm kind={kind} materials={materials.filter((m) => m.active).map((m) => ({ id: m.id, name: m.name, unit: m.unit }))} />
 
       <h2>{finished ? "All products" : "All raw materials"}</h2>
       <FilterBar clear={path}>
@@ -47,7 +47,7 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
       <datalist id="units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist>
       <div className="table-wrap"><table className="collapsible">
         <thead><tr>
-          <th>Name</th><th>Unit</th><th className="r">On hand</th><th className="r">Minimum</th>{finished && <th className="r">Selling price</th>}<th>Status</th><th></th>
+          <th>Name</th><th>Unit</th><th className="r">On hand</th><th className="r">Minimum</th><th>Status</th><th></th>
         </tr></thead>
         <tbody>
           {rows.map((i) => {
@@ -61,7 +61,6 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
                 <tr className={i.active ? "" : "inactive"}>
                   <td><b>{i.name}</b></td><td>{i.unit}</td>
                   <td className="r">{num(i.qtyOnHand)} {i.unit}</td><td className="r">{num(i.minStock)} {i.unit}</td>
-                  {finished && <td className="r">{i.sellingPrice ? inr(i.sellingPrice) : "—"}</td>}
                   <td>{i.active ? <span className="badge green">Active</span> : <span className="badge red">Inactive</span>}</td>
                   <td>
                     <RowActions
@@ -76,7 +75,6 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
                               : <input name="unit" defaultValue={i.unit} list="units" required />}
                           </label>
                           <label>Minimum stock ({i.unit})<input name="minStock" inputMode="decimal" defaultValue={i.minStock.toString()} /></label>
-                          {finished && <label>Selling price (₹ per {i.unit})<input name="sellingPrice" inputMode="decimal" defaultValue={i.sellingPrice?.toString() ?? ""} /></label>}
                           <label className="check span2"><input type="checkbox" name="active" defaultChecked={i.active} />Active (inactive items are hidden from entry forms)</label>
                           {finished && (
                             <fieldset className="span2">
@@ -88,7 +86,7 @@ export async function ItemList({ kind, searchParams: sp }: { kind: ItemKind; sea
                                 ))}
                                 {materials.length === 0 && <span className="muted">No raw materials yet. Add some on the Raw Materials page.</span>}
                               </div>
-                              <p className="muted">No quantities here. Workers type the quantity used in every production batch.</p>
+                              <p className="muted">Keep at least one ticked. No quantities here: managers type the quantity used in every production batch.</p>
                             </fieldset>
                           )}
                           {locked && <p className="muted span2">The unit is locked because this item has stock history.</p>}

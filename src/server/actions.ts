@@ -11,13 +11,15 @@ import {
   updateDocNote, updateItem, updateParty, updateProfile, updateUser,
 } from "./master";
 import type { Result } from "../lib/types";
-import { docNo } from "../lib/fmt";
+import { docNo, inr } from "../lib/fmt";
+import { ZERO } from "../lib/dec";
+import { workPeriod } from "../lib/statement";
 
-async function run(fn: () => Promise<string>): Promise<Result> {
+async function run(fn: () => Promise<string | Omit<Result, "ok">>): Promise<Result> {
   try {
-    const message = await fn();
+    const r = await fn();
     revalidatePath("/", "layout");
-    return { ok: true, message };
+    return typeof r === "string" ? { ok: true, message: r } : { ok: true, ...r };
   } catch (e) {
     if (e instanceof UserError) return { ok: false, message: e.message };
     if (e instanceof ZodError) return { ok: false, message: e.issues[0]?.message ?? "Check the form" };
@@ -60,14 +62,31 @@ export async function labourAction(_p: Result | null, fd: FormData) {
     const u = await requireUser();
     const p = await createPayment(u.id, {
       requestId: s(fd, "requestId"), kind: "LABOUR", partyId: s(fd, "partyId"), amount: s(fd, "amount"), date: s(fd, "date"), note: s(fd, "note"),
+      workFrom: s(fd, "workFrom"), workTo: s(fd, "workTo"),
     });
-    return `${docNo("PAY", p.id)} saved`;
+    const who = await db.party.findUnique({ where: { id: p.partyId ?? "" } });
+    return `Labour payment of ${inr(p.amount)} to ${who?.name ?? "labour"} saved (payment no. ${p.id}). ${workPeriod(p)}.`;
   });
 }
 
 // ----- admin only -----
+// After a sale: say what was billed, what came in and what is still due, and link to that customer's payment page.
 export async function saleAction(input: unknown) {
-  return run(async () => { const u = await requireAdmin(); const x = await createSale(u.id, input); return `${docNo("SAL", x.id)} saved`; });
+  return run(async () => {
+    const u = await requireAdmin();
+    const x = await createSale(u.id, input);
+    const [customer, got] = await Promise.all([
+      db.party.findUniqueOrThrow({ where: { id: x.customerId } }),
+      db.payment.aggregate({ _sum: { amount: true }, where: { saleId: x.id, cancelledAt: null } }),
+    ]);
+    const received = got._sum.amount ?? ZERO, due = x.total.minus(received);
+    const message = `${docNo("SAL", x.id)} saved for ${customer.name}. Total ${inr(x.total)}, received ${inr(received)}, ` +
+      (due.gt(0) ? `${inr(due)} still due.` : "fully paid.");
+    return {
+      message,
+      link: { href: `/admin/party/${customer.id}`, label: due.gt(0) ? `Record payment from ${customer.name} →` : `Open ${customer.name}'s account →` },
+    };
+  });
 }
 export async function partyPaymentAction(_p: Result | null, fd: FormData) {
   return run(async () => {
@@ -81,7 +100,7 @@ export async function partyPaymentAction(_p: Result | null, fd: FormData) {
       purchaseId: bill && party.type === "VENDOR" ? Number(bill) : undefined,
       saleId: bill && party.type === "CUSTOMER" ? Number(bill) : undefined,
     });
-    return `${docNo("PAY", p.id)} saved`;
+    return `${party.type === "VENDOR" ? "Payment" : "Receipt"} of ${inr(p.amount)} ${party.type === "VENDOR" ? "to" : "from"} ${party.name} saved (${party.type === "VENDOR" ? "payment" : "receipt"} no. ${p.id})`;
   });
 }
 export async function cancelAction(kind: CancelKind, id: number, reason: string) {
@@ -100,7 +119,7 @@ export async function adjustAction(_p: Result | null, fd: FormData) {
 export async function itemAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    const it = await createItem(u.id, { name: s(fd, "name"), type: s(fd, "type"), unit: s(fd, "unit"), minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice") });
+    const it = await createItem(u.id, { name: s(fd, "name"), type: s(fd, "type"), unit: s(fd, "unit"), minStock: s(fd, "minStock"), materialIds: fd.getAll("m").map(String) });
     return `${it.name} added to ${it.type === "RAW_MATERIAL" ? "Raw Materials" : "Products"}`;
   });
 }
@@ -109,7 +128,7 @@ export async function itemUpdateAction(_p: Result | null, fd: FormData) {
     const u = await requireAdmin();
     await updateItem(u.id, {
       id: s(fd, "id"), name: s(fd, "name"), unit: fd.has("unit") ? s(fd, "unit") : undefined,
-      minStock: s(fd, "minStock"), sellingPrice: s(fd, "sellingPrice"), active: fd.get("active") === "on",
+      minStock: s(fd, "minStock"), active: fd.get("active") === "on",
       materialIds: fd.get("withMapping") === "1" ? fd.getAll("m").map(String) : undefined,
     });
     return "Saved";
@@ -118,7 +137,7 @@ export async function itemUpdateAction(_p: Result | null, fd: FormData) {
 export async function partyAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await createParty(u.id, { name: s(fd, "name"), type: s(fd, "type"), phone: s(fd, "phone"), openingBalance: s(fd, "openingBalance") });
+    await createParty(u.id, { name: s(fd, "name"), type: s(fd, "type"), phone: s(fd, "phone") });
     return "Added";
   });
 }
@@ -145,7 +164,7 @@ export async function userDeleteAction(_p: Result | null, fd: FormData) {
 export async function partyUpdateAction(_p: Result | null, fd: FormData) {
   return run(async () => {
     const u = await requireAdmin();
-    await updateParty(u.id, { id: s(fd, "id"), name: s(fd, "name"), phone: s(fd, "phone"), openingBalance: s(fd, "openingBalance"), active: fd.get("active") === "on" });
+    await updateParty(u.id, { id: s(fd, "id"), name: s(fd, "name"), phone: s(fd, "phone"), active: fd.get("active") === "on" });
     return "Saved";
   });
 }

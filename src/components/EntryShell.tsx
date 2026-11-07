@@ -1,5 +1,6 @@
 "use client";
 import { ReactNode, useState } from "react";
+import Link from "next/link";
 import type { Result } from "@/lib/types";
 import { uid } from "@/lib/fmt";
 
@@ -32,18 +33,24 @@ export function EntryShell({
 
   return (
     <div className="entry">
-      {res && <p className={res.ok ? "msg ok big" : "msg err big"}>{res.message}{res.ok && " ✓ You can enter another."}</p>}
+      {res && (
+        <div className={res.ok ? "msg ok big" : "msg err big"} role="status">
+          {res.message}{res.ok && !res.link && " ✓ You can enter another."}
+          {res.link && <div className="msg-next"><Link href={res.link.href} className="btn primary sm">{res.link.label}</Link><span className="muted">or enter another below.</span></div>}
+        </div>
+      )}
       {!review ? (
         <>
           {children}
-          <div className="bar"><button className="btn primary" disabled={!valid} onClick={() => { setRes(null); setReview(true); }}>Review</button></div>
+          <div className="bar"><button className="btn primary" disabled={!valid} onClick={() => { setRes(null); setReview(true); window.scrollTo({ top: 0 }); }}>Review</button></div>
         </>
       ) : (
         <>
-          <div className="card">{summary}</div>
+          <div className="review-head"><p className="muted">Check the details below. Nothing is saved until you press <b>Confirm and save</b>.</p></div>
+          {summary}
           <div className="bar two">
-            <button className="btn" onClick={() => setReview(false)} disabled={busy}>Back</button>
-            <button className="btn primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+            <button className="btn" onClick={() => setReview(false)} disabled={busy}>← Back to edit</button>
+            <button className="btn primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Confirm and save"}</button>
           </div>
         </>
       )}

@@ -6,6 +6,7 @@ import { UserError } from "./errors";
 import { audit, type CancelKind } from "./core";
 import { hashPassword, verifyPassword } from "./auth";
 import { D } from "../lib/dec";
+import { cleanName, nameKey } from "../lib/names";
 import { normUnit } from "../lib/units";
 import { normalizeIndianPhone, PHONE_MSG } from "../lib/phone";
 
@@ -26,63 +27,100 @@ const optNum = z.union([z.string(), z.number(), z.undefined(), z.null()]).transf
   v === undefined || v === null || String(v).trim() === "" ? undefined : D(String(v).trim()),
 );
 
+// Item names are unique ignoring case and extra spaces: "flour" cannot be added next to "Flour".
+async function sameItemName(c: Pick<Prisma.TransactionClient, "item">, name: string, exceptId?: string) {
+  const all = await c.item.findMany({ where: exceptId ? { id: { not: exceptId } } : {}, select: { id: true, name: true } });
+  return all.find((x) => nameKey(x.name) === nameKey(name)) ?? null;
+}
+
+// A product is added with the raw materials it is made from (at least one). No selling price: the rate is typed when selling.
 export async function createItem(userId: string, raw: unknown) {
   const i = z.object({
-    name: z.string().trim().min(1, "Enter a name"),
+    name: z.string().transform(cleanName).pipe(z.string().min(1, "Enter a name")),
     type: z.enum(["RAW_MATERIAL", "FINISHED_GOOD"]),
     unit: z.string().trim().min(1, "Enter a unit, e.g. kg"),
-    minStock: optNum, sellingPrice: optNum,
+    minStock: optNum,
+    materialIds: z.array(z.string()).optional(),
   }).parse(raw);
-  const exists = await db.item.findUnique({ where: { name: i.name } });
-  if (exists) throw new UserError("An item with this name already exists");
+  const product = i.type === "FINISHED_GOOD";
+  if (product && !i.materialIds?.length) throw new UserError(NEED_MATERIAL);
+  const exists = await sameItemName(db, i.name);
+  if (exists) throw new UserError(`An item named "${exists.name}" already exists`);
   const unit = normUnit(i.unit);
-  const sellingPrice = i.type === "FINISHED_GOOD" ? i.sellingPrice : undefined;
   return db.$transaction(async (tx) => {
-    const item = await tx.item.create({ data: { name: i.name, type: i.type, unit, minStock: i.minStock ?? 0, sellingPrice } });
+    const item = await tx.item.create({ data: { name: i.name, type: i.type, unit, minStock: i.minStock ?? 0 } });
+    if (product) await applyMapping(tx, userId, item, i.materialIds!);
     await audit(tx, userId, "ITEM_CREATE", "Item", item.id, { name: i.name, type: i.type });
     return item;
   });
 }
+const NEED_MATERIAL = "Choose at least one raw material this product is made from";
 
 export async function updateItem(userId: string, raw: unknown) {
   const i = z.object({
     id: z.string().min(1),
-    name: z.string().trim().min(1, "Enter a name"),
+    name: z.string().transform(cleanName).pipe(z.string().min(1, "Enter a name")),
     unit: z.string().trim().min(1, "Enter a unit, e.g. kg").optional(),
-    minStock: optNum, sellingPrice: optNum, active: z.boolean(),
+    minStock: optNum, active: z.boolean(),
     materialIds: z.array(z.string()).optional(),
   }).parse(raw);
   return db.$transaction(async (tx) => {
     const cur = await tx.item.findUnique({ where: { id: i.id } });
     if (!cur) throw new UserError("Item not found");
-    if (i.name !== cur.name && (await tx.item.findUnique({ where: { name: i.name } })))
-      throw new UserError("An item with this name already exists");
+    if (cur.type === "FINISHED_GOOD" && i.materialIds && i.materialIds.length === 0) throw new UserError(NEED_MATERIAL);
+    const clash = await sameItemName(tx, i.name, i.id);
+    if (clash) throw new UserError(`An item named "${clash.name}" already exists`);
     const unit = i.unit ? normUnit(i.unit) : cur.unit;
     if (unit !== cur.unit && (await tx.stockMovement.count({ where: { itemId: cur.id } })) > 0)
       throw new UserError("Unit cannot change once the item has stock history");
-    const sellingPrice = cur.type === "FINISHED_GOOD" ? i.sellingPrice ?? null : null;
-    const item = await tx.item.update({ where: { id: i.id }, data: { name: i.name, unit, minStock: i.minStock ?? 0, sellingPrice, active: i.active } });
+    const item = await tx.item.update({ where: { id: i.id }, data: { name: i.name, unit, minStock: i.minStock ?? 0, active: i.active } });
     if (i.materialIds) await applyMapping(tx, userId, cur, i.materialIds);
     await audit(tx, userId, "ITEM_UPDATE", "Item", i.id, {
-      name: i.name, unit, minStock: i.minStock?.toString(), sellingPrice: sellingPrice?.toString(), active: i.active,
+      name: i.name, unit, minStock: i.minStock?.toString(), active: i.active,
       ...(i.name !== cur.name && { renamedFrom: cur.name }), ...(unit !== cur.unit && { unitWas: cur.unit }),
     });
     return item;
   });
 }
 
+type PartyType = "VENDOR" | "CUSTOMER" | "WORKER";
+const PARTY_WORD: Record<PartyType, string> = { VENDOR: "vendor", CUSTOMER: "customer", WORKER: "labour" };
+const article = (w: string) => (/^[aeiou]/.test(w) ? "An" : "A");
+const dupName = (type: PartyType, name: string) => new UserError(`${article(PARTY_WORD[type])} ${PARTY_WORD[type]} named "${name}" already exists. Open it from the list instead of adding it again.`);
+
+// Same kind of party with the same name (ignoring case, spaces and punctuation) or the same phone number.
+async function assertNoDuplicate(tx: Prisma.TransactionClient, type: PartyType, key: string, phone: string | undefined, exceptId?: string) {
+  const not = exceptId ? { id: { not: exceptId } } : {};
+  const sameName = await tx.party.findFirst({ where: { type, nameKey: key, ...not } });
+  if (sameName) throw dupName(type, sameName.name);
+  if (phone) {
+    const samePhone = await tx.party.findFirst({ where: { type, phone, ...not } });
+    if (samePhone) throw new UserError(`Another ${PARTY_WORD[type]} (${samePhone.name}) already uses this phone number`);
+  }
+}
+
+// Two saves that race past the check hit the database's unique (type, nameKey) index instead.
+async function uniqueName<T>(type: PartyType, name: string, run: () => Promise<T>) {
+  try { return await run(); } catch (e) {
+    if ((e as { code?: string })?.code === "P2002") throw dupName(type, name);
+    throw e;
+  }
+}
+
+// A party is just a name and phone. What they owe (or we owe) comes only from bills and payments.
 export async function createParty(userId: string, raw: unknown) {
   const i = z.object({
-    name: z.string().trim().min(1, "Enter a name"),
+    name: z.string().transform(cleanName).pipe(z.string().min(1, "Enter a name")),
     type: z.enum(["VENDOR", "CUSTOMER", "WORKER"]),
     phone: phoneOpt,
-    openingBalance: optNum,
   }).parse(raw);
-  return db.$transaction(async (tx) => {
-    const p = await tx.party.create({ data: { name: i.name, type: i.type, phone: i.phone, openingBalance: i.openingBalance ?? 0 } });
+  const key = nameKey(i.name);
+  return uniqueName(i.type, i.name, () => db.$transaction(async (tx) => {
+    await assertNoDuplicate(tx, i.type, key, i.phone);
+    const p = await tx.party.create({ data: { name: i.name, nameKey: key, type: i.type, phone: i.phone } });
     await audit(tx, userId, "PARTY_CREATE", "Party", p.id, { name: i.name, type: i.type });
     return p;
-  });
+  }));
 }
 
 // Product -> raw materials. No quantities here. Quantities are typed in each batch.
@@ -186,14 +224,18 @@ export async function changePassword(userId: string, raw: unknown) {
 }
 
 export async function updateParty(userId: string, raw: unknown) {
-  const i = z.object({ id: z.string().min(1), name: nameField, phone: phoneOpt, openingBalance: optNum, active: z.boolean() }).parse(raw);
-  await db.$transaction(async (tx) => {
-    const cur = await tx.party.findUnique({ where: { id: i.id } });
-    if (!cur) throw new UserError("Not found");
-    const openingBalance = cur.type === "WORKER" ? cur.openingBalance : i.openingBalance ?? 0;
-    await tx.party.update({ where: { id: i.id }, data: { name: i.name, phone: i.phone ?? null, openingBalance, active: i.active } });
-    await audit(tx, userId, "PARTY_UPDATE", "Party", i.id, { name: i.name, phone: i.phone ?? null, openingBalance: openingBalance.toString(), active: i.active });
-  });
+  const i = z.object({
+    id: z.string().min(1), name: z.string().transform(cleanName).pipe(z.string().min(1, "Enter a name")), phone: phoneOpt,
+    active: z.boolean(),
+  }).parse(raw);
+  const cur = await db.party.findUnique({ where: { id: i.id } });
+  if (!cur) throw new UserError("Not found");
+  const key = nameKey(i.name);
+  await uniqueName(cur.type, i.name, () => db.$transaction(async (tx) => {
+    await assertNoDuplicate(tx, cur.type, key, i.phone, cur.id);
+    await tx.party.update({ where: { id: i.id }, data: { name: i.name, nameKey: key, phone: i.phone ?? null, active: i.active } });
+    await audit(tx, userId, "PARTY_UPDATE", "Party", i.id, { name: i.name, phone: i.phone ?? null, active: i.active, ...(i.name !== cur.name && { renamedFrom: cur.name }) });
+  }));
 }
 
 export async function deleteParty(userId: string, id: string) {

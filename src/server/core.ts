@@ -5,7 +5,7 @@ import { db } from "./db";
 import { UserError } from "./errors";
 import { lockItems, moveStock, Tx } from "./stock";
 import { D, Dec, r2, r4, sum, ZERO } from "../lib/dec";
-import { docNo } from "../lib/fmt";
+import { docNo, inr } from "../lib/fmt";
 
 const TX = { timeout: 20000, maxWait: 10000 };
 
@@ -68,14 +68,29 @@ async function loadParty(tx: Tx, id: string, type: "VENDOR" | "CUSTOMER" | "WORK
 async function addPayment(
   tx: Tx,
   p: { requestId: string; kind: PaymentKind; partyId?: string; amount: Dec; date: Date; note?: string;
-       purchaseId?: number; saleId?: number; batchId?: number; userId: string },
+       purchaseId?: number; saleId?: number; batchId?: number; workFrom?: Date; workTo?: Date; userId: string },
 ) {
   return tx.payment.create({
     data: {
       requestId: p.requestId, kind: p.kind, partyId: p.partyId, amount: p.amount, date: p.date, note: p.note,
       purchaseId: p.purchaseId, saleId: p.saleId, batchId: p.batchId, createdById: p.userId,
+      // only labour carries a work period
+      ...(p.kind === "LABOUR" && { workFrom: p.workFrom, workTo: p.workTo }),
     },
   });
+}
+
+// What we owe a vendor, or a customer owes us, right now: bills minus payments (cancelled ones left out).
+// The party row is locked first, so two payments saved at the same moment are checked one after the other.
+async function partyDue(tx: Tx, partyId: string, type: "VENDOR" | "CUSTOMER") {
+  await tx.$queryRaw`SELECT id FROM "Party" WHERE id = ${partyId} FOR UPDATE`;
+  const billed = type === "VENDOR"
+    ? (await tx.purchase.aggregate({ _sum: { total: true }, where: { vendorId: partyId, cancelledAt: null } }))._sum.total
+    : (await tx.sale.aggregate({ _sum: { total: true }, where: { customerId: partyId, cancelledAt: null } }))._sum.total;
+  const paid = (await tx.payment.aggregate({
+    _sum: { amount: true }, where: { partyId, cancelledAt: null, kind: type === "VENDOR" ? "VENDOR_PAYMENT" : "CUSTOMER_RECEIPT" },
+  }))._sum.amount;
+  return (billed ?? ZERO).minus(paid ?? ZERO);
 }
 
 // ---------- W1: receive materials ----------
@@ -234,7 +249,7 @@ export async function createBatch(userId: string, raw: unknown) {
         // 3. Labour and expenses are payments linked to the batch.
         let labourCost = ZERO, otherCost = ZERO;
         for (const [n, l] of i.labour.entries()) {
-          await addPayment(tx, { requestId: `${i.requestId}:L${n}`, kind: "LABOUR", partyId: l.partyId, amount: l.amount, date: i.date, note: l.note, batchId: batch.id, userId });
+          await addPayment(tx, { requestId: `${i.requestId}:L${n}`, kind: "LABOUR", partyId: l.partyId, amount: l.amount, date: i.date, note: l.note, batchId: batch.id, workFrom: i.date, workTo: i.date, userId });
           labourCost = labourCost.plus(l.amount);
         }
         for (const [n, e] of i.expenses.entries()) {
@@ -266,6 +281,8 @@ const PaymentIn = z.object({
   purchaseId: z.number().int().optional(),
   saleId: z.number().int().optional(),
   batchId: z.number().int().optional(),
+  workFrom: z.string().optional().transform((s) => (s ? new Date(s) : undefined)),
+  workTo: z.string().optional().transform((s) => (s ? new Date(s) : undefined)),
 });
 
 export async function billDue(tx: Tx, kind: "purchase" | "sale", id: number) {
@@ -280,13 +297,18 @@ export async function billDue(tx: Tx, kind: "purchase" | "sale", id: number) {
 
 export async function createPayment(userId: string, raw: unknown) {
   const i = PaymentIn.parse(raw);
+  if (i.kind === "LABOUR") {
+    // A labour payment says which days of work it is for.
+    if (!i.workFrom || !i.workTo || isNaN(+i.workFrom) || isNaN(+i.workTo)) throw new UserError("Enter the work period: the From and To dates of the work being paid for");
+    if (i.workFrom > i.workTo) throw new UserError("Work period: From cannot be after To");
+  } else { i.workFrom = undefined; i.workTo = undefined; }
   return once(
     () =>
       db.$transaction(async (tx) => {
         const dup = await tx.payment.findUnique({ where: { requestId: i.requestId } });
         if (dup) return dup;
         const partyType = i.kind === "VENDOR_PAYMENT" ? "VENDOR" : i.kind === "CUSTOMER_RECEIPT" ? "CUSTOMER" : "WORKER";
-        await loadParty(tx, i.partyId, partyType);
+        const party = await loadParty(tx, i.partyId, partyType);
         if (i.purchaseId) {
           if (i.kind !== "VENDOR_PAYMENT") throw new UserError("A bill can only be paid by a vendor payment");
           const { bill, due } = await billDue(tx, "purchase", i.purchaseId);
@@ -298,6 +320,14 @@ export async function createPayment(userId: string, raw: unknown) {
           const { bill, due } = await billDue(tx, "sale", i.saleId);
           if (bill.customerId !== i.partyId) throw new UserError("That sale belongs to another customer");
           if (i.amount.gt(due)) throw new UserError(`More than the bill due (${due.toString()})`);
+        }
+        if (partyType !== "WORKER") {
+          // Never pay more than is owed in total: a balance must not go below zero.
+          const due = await partyDue(tx, party.id, partyType);
+          if (i.amount.gt(due)) {
+            if (partyType === "VENDOR") throw new UserError(due.gt(0) ? `We owe ${party.name} only ${inr(due)}. A payment cannot be more than that.` : `We owe ${party.name} nothing right now, so there is nothing to pay.`);
+            throw new UserError(due.gt(0) ? `${party.name} owes us only ${inr(due)}. A receipt cannot be more than that.` : `${party.name} owes us nothing right now, so there is nothing to receive.`);
+          }
         }
         return addPayment(tx, { ...i, userId });
       }, TX),
@@ -339,6 +369,21 @@ export async function cancelDoc(userId: string, kind: CancelKind, id: number, re
       // R14: linked payments are cancelled too.
       const link = kind === "purchase" ? { purchaseId: id } : kind === "sale" ? { saleId: id } : { batchId: id };
       await tx.payment.updateMany({ where: { ...link, cancelledAt: null }, data });
+
+      // A bill that was already paid off "on account" cannot be cancelled on its own:
+      // the party would then show as owing less than zero. The payment has to be cancelled first.
+      if (kind !== "batch") {
+        const doc = kind === "purchase"
+          ? { partyId: (await tx.purchase.findUniqueOrThrow({ where: { id } })).vendorId, type: "VENDOR" as const }
+          : { partyId: (await tx.sale.findUniqueOrThrow({ where: { id } })).customerId, type: "CUSTOMER" as const };
+        const due = await partyDue(tx, doc.partyId, doc.type);
+        if (due.lt(0)) {
+          const party = await tx.party.findUniqueOrThrow({ where: { id: doc.partyId } });
+          throw new UserError(doc.type === "VENDOR"
+            ? `Cannot cancel ${docNo("PUR", id)}: ${party.name} has already been paid ${inr(due.neg())} towards it. Cancel the payment first (Transactions → Payments), then this bill.`
+            : `Cannot cancel ${docNo("SAL", id)}: ${party.name} has already paid ${inr(due.neg())} towards it. Cancel the receipt first (Transactions → Payments), then this sale.`);
+        }
+      }
     }
     await audit(tx, userId, "CANCEL", kind, String(id), { reason });
     return docNo(PREFIX[kind], id);

@@ -3,11 +3,13 @@ import { db } from "@/server/db";
 import { Pager } from "@/components/Pager";
 import { DocActions } from "@/components/DocActions";
 import { PAGE } from "@/server/queries";
-import { qs, type Range } from "@/lib/filters";
-import { dOnly, docNo, inr, num } from "@/lib/fmt";
+import { qs, workPeriodWhere, type Range } from "@/lib/filters";
+import { workPeriod } from "@/lib/statement";
+import { dOnly, docNo, inr, num, pl } from "@/lib/fmt";
 import { ZERO } from "@/lib/dec";
 
-export type Filters = { range: Range; status: "saved" | "cancelled" | ""; q: string; page: number };
+// by "work": labour payments whose work period overlaps the dates (instead of the payment date).
+export type Filters = { range: Range; status: "saved" | "cancelled" | ""; q: string; page: number; by?: "work" | "" };
 type Props = { f: Filters };
 
 const status = (cancelledAt: Date | null, reason: string | null) =>
@@ -16,7 +18,7 @@ const paging = (f: Filters) => ({ take: PAGE + 1, skip: (f.page - 1) * PAGE });
 const dateWhere = (f: Filters) => ({ date: { gte: f.range.gte, lte: f.range.lte } });
 const statusWhere = (f: Filters) => (f.status === "saved" ? { cancelledAt: null } : f.status === "cancelled" ? { cancelledAt: { not: null } } : {});
 const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
-const base = (tab: string, f: Filters) => `/admin/transactions${qs({ tab, from: f.range.from, to: f.range.to, status: f.status, q: f.q })}`;
+const base = (tab: string, f: Filters) => `/admin/transactions${qs({ tab, from: f.range.from, to: f.range.to, status: f.status, q: f.q, by: f.by })}`;
 const empty = (cols: number) => <tr><td colSpan={cols} className="muted">Nothing in this period with these filters.</td></tr>;
 
 export async function PurchasesList({ f }: Props) {
@@ -70,7 +72,7 @@ export async function SalesList({ f }: Props) {
             <tr key={s.id} className={s.cancelledAt ? "cancelled" : ""}>
               <td>{docNo("SAL", s.id)}</td><td>{dOnly(s.date)}</td><td className="keep">{s.customer.name}</td>
               <td>{s.lines.map((l) => `${l.item.name} ${l.qty}`).join(", ")}</td>
-              <td className="r">{inr(s.total)}</td><td className="r">{inr(got)}</td><td className="r">{inr(s.total.minus(got))}</td><td className="r">{inr(profit)}</td>
+              <td className="r">{inr(s.total)}</td><td className="r">{inr(got)}</td><td className="r">{inr(s.total.minus(got))}</td><td className="r">{pl(profit)}</td>
               <td>{s.note}</td>
               <td>{status(s.cancelledAt, s.cancelReason)}</td>
               <td>{!s.cancelledAt && <DocActions kind="sale" id={s.id} label={docNo("SAL", s.id)} note={s.note ?? ""} />}</td>
@@ -108,21 +110,22 @@ const PAYMENT_LABEL = { CUSTOMER_RECEIPT: "Customer receipt (in)", VENDOR_PAYMEN
 
 export async function PaymentsList({ f }: Props) {
   const rows = await db.payment.findMany({
-    where: { ...dateWhere(f), ...statusWhere(f), ...(f.q && { OR: [{ party: { name: ci(f.q) } }, { note: ci(f.q) }] }) },
+    where: { ...(f.by === "work" ? { kind: "LABOUR" as const, ...workPeriodWhere(f.range) } : dateWhere(f)), ...statusWhere(f), ...(f.q && { OR: [{ party: { name: ci(f.q) } }, { note: ci(f.q) }] }) },
     orderBy: { id: "desc" }, ...paging(f), include: { party: true },
   });
   return (
     <>
       <div className="table-wrap"><table className="collapsible">
-        <thead><tr><th>No.</th><th>Date</th><th>Type</th><th>Party</th><th className="r">Amount</th><th>For</th><th>Note</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>Date</th><th>Type</th><th>Party</th><th className="r">Amount</th><th>For</th><th>Work period</th><th>Note</th><th>Status</th><th></th></tr></thead>
         <tbody>{rows.slice(0, PAGE).map((p) => (
           <tr key={p.id} className={p.cancelledAt ? "cancelled" : ""}>
             <td>{docNo("PAY", p.id)}</td><td>{dOnly(p.date)}</td><td>{PAYMENT_LABEL[p.kind]}</td><td className="keep">{p.party?.name}</td><td className="r">{inr(p.amount)}</td>
             <td>{p.purchaseId ? docNo("PUR", p.purchaseId) : p.saleId ? docNo("SAL", p.saleId) : p.batchId ? docNo("BAT", p.batchId) : ""}</td>
+            <td>{workPeriod(p).replace(/^Work (on )?/, "")}</td>
             <td>{p.note}</td>
             <td>{status(p.cancelledAt, p.cancelReason)}</td>
             <td>{!p.cancelledAt && <DocActions kind="payment" id={p.id} label={docNo("PAY", p.id)} note={p.note ?? ""} />}</td>
-          </tr>))}{rows.length === 0 && empty(9)}</tbody></table></div>
+          </tr>))}{rows.length === 0 && empty(10)}</tbody></table></div>
       <Pager page={f.page} hasMore={rows.length > PAGE} base={base("payments", f)} />
     </>
   );

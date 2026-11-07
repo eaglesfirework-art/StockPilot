@@ -2,6 +2,7 @@ import Link from "next/link";
 import { pageUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { docNo, dt, inr } from "@/lib/fmt";
+import { workPeriod } from "@/lib/statement";
 
 export default async function WorkerHome() {
   const u = await pageUser();
@@ -20,7 +21,7 @@ export default async function WorkerHome() {
       <h3>My recent entries</h3>
       {[...pur.map((p) => ({ t: p.createdAt, s: `${docNo("PUR", p.id)} · ${p.vendor.name} · ${inr(p.total)}`, c: !!p.cancelledAt })),
         ...bat.map((b) => ({ t: b.createdAt, s: `${docNo("BAT", b.id)} · ${b.product.name} · ${b.qtyProduced} made`, c: !!b.cancelledAt })),
-        ...pay.map((p) => ({ t: p.createdAt, s: `${docNo("PAY", p.id)} · ${p.party?.name} · ${inr(p.amount)}`, c: !!p.cancelledAt }))]
+        ...pay.map((p) => ({ t: p.createdAt, s: `Labour payment to ${p.party?.name} · ${inr(p.amount)} · ${workPeriod(p)}${p.note ? ` · ${p.note}` : ""}`, c: !!p.cancelledAt }))]
         .sort((a, b) => b.t.getTime() - a.t.getTime()).map((r, i) => (
           <div className="card" key={i}><span style={r.c ? { textDecoration: "line-through" } : undefined}>{r.s}</span>
             <div className="muted">{dt(r.t)}{r.c && " · Cancelled"}</div></div>

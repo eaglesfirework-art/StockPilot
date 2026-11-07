@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AutoForm } from "@/components/AutoForm";
 import { PresetButtons } from "@/components/PresetButtons";
 import { presets, type Range } from "@/lib/filters";
+import { daysInclusive } from "@/lib/analytics";
 
 type Params = Record<string, string | undefined>;
 
@@ -18,7 +19,7 @@ export function DateFilter({ range, hidden = {}, children }: { range: Range; hid
       <label className="date">To<input type="date" name="to" defaultValue={range.to} /></label>
       {children}
       <PresetButtons presets={quick} active={active} />
-      <p className="muted">{range.isDefault ? "Showing the last 7 days (default): " : "Showing "}{range.from} to {range.to}</p>
+      <p className="muted">{range.isDefault ? `Showing the last ${daysInclusive(range.from, range.to)} days (default): ` : "Showing "}{range.from} to {range.to}</p>
     </AutoForm>
   );
 }

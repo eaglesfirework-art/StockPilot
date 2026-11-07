@@ -59,7 +59,6 @@ model Item {
   type          ItemType
   unit          String
   minStock      Decimal           @default(0) @db.Decimal(14, 3)
-  sellingPrice  Decimal?          @db.Decimal(14, 2)
   qtyOnHand     Decimal           @default(0) @db.Decimal(14, 3)
   avgCost       Decimal           @default(0) @db.Decimal(14, 4)
   active        Boolean           @default(true)
@@ -75,13 +74,15 @@ model Item {
 model Party {
   id             String     @id @default(cuid())
   name           String
+  nameKey        String? // lower case, punctuation removed: blocks duplicates such as "anand flour mills."
   type           PartyType
   phone          String?
-  openingBalance Decimal    @default(0) @db.Decimal(14, 2)
   active         Boolean    @default(true)
   purchases      Purchase[]
   sales          Sale[]
   payments       Payment[]
+
+  @@unique([type, nameKey])
 }
 
 // 4-5. Purchases
@@ -162,12 +163,16 @@ model Payment {
   sale         Sale?            @relation(fields: [saleId], references: [id])
   batchId      Int?
   batch        ProductionBatch? @relation(fields: [batchId], references: [id])
+  // Labour only: the days of work this payment is for (a batch's labour = the batch date).
+  workFrom     DateTime?
+  workTo       DateTime?
   createdById  String
   createdAt    DateTime         @default(now())
   cancelledAt  DateTime?
   cancelReason String?
 
   @@index([date, kind])
+  @@index([workFrom, workTo])
 }
 
 // 9. Product -> raw material mapping. NO quantity here: quantities are typed in each batch.

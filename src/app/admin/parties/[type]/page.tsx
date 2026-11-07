@@ -9,7 +9,7 @@ import { RowActions } from "@/components/RowActions";
 import { partyAction, partyDeleteAction, partyUpdateAction } from "@/server/actions";
 import { qs } from "@/lib/filters";
 import { formatPhone } from "@/lib/phone";
-import { inr } from "@/lib/fmt";
+import { inr, owed } from "@/lib/fmt";
 
 const TYPES: Record<string, { kind: PartyKind; title: string }> = {
   customers: { kind: "CUSTOMER", title: "Customers" }, vendors: { kind: "VENDOR", title: "Vendors" }, labours: { kind: "WORKER", title: "Labours" },
@@ -35,23 +35,23 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
     (!status || p.active === (status === "active")) && (!dueOnly || p.balance.gt(0)));
   const rows = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE);
   const label = t.title.toLowerCase();
-  const cols = worker ? 5 : 8;
+  const cols = worker ? 5 : 7;
   return (
     <>
-      <h1>{t.title}</h1>
+      <header className="page-head"><h1>{t.title}</h1><p className="muted">{worker ? "Labour teams paid for production work." : t.kind === "VENDOR" ? "Suppliers of raw materials, and what we owe each of them." : "Who buys our products, and what each of them owes us."}</p></header>
       <FilterBar clear={`/admin/parties/${params.type}`}>
         <label>Search<input name="q" defaultValue={sp.q ?? ""} placeholder="Name or phone" /></label>
         <label>Status<select name="status" defaultValue={status}><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
         {!worker && <label className="check-label"><span><input type="checkbox" name="due" value="1" defaultChecked={dueOnly} />{t.kind === "CUSTOMER" ? "Only those who owe us" : "Only those we owe"}</span></label>}
       </FilterBar>
       <div className="table-wrap"><table className="collapsible">
-        <thead><tr><th>Name</th><th>Phone</th>{!worker && <><th className="r">Opening</th><th className="r">Billed</th></>}<th className="r">{worker ? "Total paid" : "Paid"}</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Owes us" : "We owe"}</th>}<th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Invoiced" : "Billed"}</th>}<th className="r">{worker ? "Total paid" : "Paid"}</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Owes us" : "We owe"}</th>}<th>Status</th><th></th></tr></thead>
         <tbody>
           {rows.map((p) => (
             <tr key={p.id} className={p.active ? "" : "inactive"}>
               <td><Link href={`/admin/party/${p.id}`}><b>{p.name}</b></Link></td><td>{formatPhone(p.phone) || "—"}</td>
-              {!worker && <><td className="r">{inr(p.opening)}</td><td className="r">{inr(p.billed)}</td></>}
-              <td className="r">{inr(p.paid)}</td>{!worker && <td className="r"><b>{inr(p.balance)}</b></td>}
+              {!worker && <td className="r">{inr(p.billed)}</td>}
+              <td className="r">{inr(p.paid)}</td>{!worker && <td className="r"><b>{owed(p.balance)}</b></td>}
               <td>{p.active ? <span className="badge green">Active</span> : <span className="badge red">Inactive</span>}</td>
               <td>
                 <RowActions
@@ -61,7 +61,6 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
                     <>
                       <label>Name<input name="name" defaultValue={p.name} required /></label>
                       <label>Mobile (India)<input name="phone" type="tel" inputMode="tel" defaultValue={formatPhone(p.phone)} placeholder="98765 43210" /></label>
-                      {!worker && <label>Opening balance (₹){t.kind === "CUSTOMER" ? " they owe" : " we owe"}<input name="openingBalance" inputMode="decimal" defaultValue={p.opening.toString()} /></label>}
                       <label className="check"><input type="checkbox" name="active" defaultChecked={p.active} />Active</label>
                     </>
                   }
@@ -75,14 +74,13 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
         </tbody>
       </table></div>
       <Pager page={page} hasMore={matches.length > page * LIST_PAGE} base={`/admin/parties/${params.type}${qs({ q: sp.q, status, due: dueOnly ? "1" : "" })}`} />
-      <p className="muted">Click a name or Statement to see bills and payments. A party can be deleted only if it has no transactions.</p>
+      <p className="muted">Click a name or Statement to see bills and payments. Names are checked for duplicates (case, spaces and punctuation are ignored). A party can be deleted only if it has no transactions.</p>
 
       <h2>Add {label.slice(0, -1)}</h2>
       <ActionForm action={partyAction} label="Add" className="form inline">
         <input type="hidden" name="type" value={t.kind} />
         <label>Name<input name="name" required /></label>
         <label>Mobile (India, optional)<input name="phone" type="tel" inputMode="tel" placeholder="98765 43210" /></label>
-        {!worker && <label>Opening balance (₹){t.kind === "CUSTOMER" ? " they owe" : " we owe"}<input name="openingBalance" inputMode="decimal" /></label>}
       </ActionForm>
     </>
   );

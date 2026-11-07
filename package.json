@@ -9,7 +9,9 @@
     "db:setup": "prisma db push && prisma db execute --file prisma/checks.sql --schema prisma/schema.prisma",
     "seed": "tsx prisma/seed.ts",
     "test:setup": "tsx scripts/test-setup.ts",
-    "test": "vitest run",
+    "test": "vitest run --mode test",
+    "e2e": "playwright test",
+    "sample-data": "tsx scripts/sample-data.ts",
     "typecheck": "tsc --noEmit",
     "integrity": "tsx scripts/integrity.ts",
     "prepare": "husky || true"
@@ -24,6 +26,7 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.2",
     "@types/bcryptjs": "2.4.6",
     "@types/node": "20.17.6",
     "@types/react": "18.3.12",

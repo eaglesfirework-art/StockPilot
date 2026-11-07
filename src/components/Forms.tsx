@@ -1,16 +1,29 @@
 "use client";
 import { useState } from "react";
 import { EntryShell } from "./EntryShell";
+import { DocPreview, type PreviewTotal } from "./ui/DocPreview";
 import { receiveAction, productionAction, saleAction } from "@/server/actions";
 import { inr, num, todayISO } from "@/lib/fmt";
 
-type Opt = { id: string; name: string; unit?: string };
+// cost = current average cost per unit, stock = quantity on hand (raw materials in the production form)
+type Opt = { id: string; name: string; unit?: string; cost?: string; stock?: string };
 const n = (s: string) => (s.trim() === "" || isNaN(Number(s)) ? 0 : Number(s));
 const Num = ({ v, set, ph }: { v: string; set: (s: string) => void; ph?: string }) => (
   <input inputMode="decimal" placeholder={ph} value={v} onChange={(e) => set(e.target.value)} />
 );
 const unitOf = (list: Opt[], id: string) => list.find((x) => x.id === id)?.unit ?? "";
 const nameOf = (list: Opt[], id: string) => list.find((x) => x.id === id)?.name ?? "";
+
+// Totals block and paid/unpaid badge shared by the purchase bill and sales invoice previews.
+const money = (total: number, now: number, nowLabel: string): PreviewTotal[] => [
+  { label: "Total", value: inr(total), strong: true },
+  { label: nowLabel, value: inr(now) },
+  { label: "Balance due", value: inr(total - now), tone: total - now > 0 ? "warn" : "ok" },
+];
+const payStatus = (total: number, now: number) =>
+  now >= total ? { label: "Paid in full", tone: "ok" as const }
+  : now > 0 ? { label: "Part paid", tone: "warn" as const }
+  : { label: "Unpaid · on credit", tone: "warn" as const };
 
 // ---------------- Receive materials ----------------
 type PLine = { itemId: string; qty: string; rate: string };
@@ -29,11 +42,19 @@ export function ReceiveForm({ vendors, items }: { vendors: Opt[]; items: Opt[] }
     <EntryShell
       valid={valid} onSaved={reset}
       submit={(requestId) => receiveAction({ requestId, vendorId, date, refNo, paidNow: paid || undefined, lines })}
-      summary={<>
-        <h3>{nameOf(vendors, vendorId)}</h3>
-        {lines.map((l, i) => <p key={i}>{nameOf(items, l.itemId)}: {num(l.qty)} {unitOf(items, l.itemId)} × {inr(n(l.rate))} = <b>{inr(n(l.qty) * n(l.rate))}</b></p>)}
-        <p>Total <b>{inr(total)}</b> · Paid now <b>{inr(n(paid))}</b> · Due <b>{inr(total - n(paid))}</b></p>
-      </>}
+      summary={
+        <DocPreview
+          kind="Purchase bill" date={date} party={{ label: "Vendor", name: nameOf(vendors, vendorId) }}
+          meta={refNo.trim() ? [["Supplier ref", refNo.trim()]] : []}
+          tables={[{
+            head: ["Item", "Quantity", "Rate", "Amount"], right: [1, 2, 3],
+            rows: lines.map((l) => ({ cells: [<b key="n">{nameOf(items, l.itemId)}</b>, `${num(l.qty)} ${unitOf(items, l.itemId)}`, inr(n(l.rate)), inr(n(l.qty) * n(l.rate))] })),
+          }]}
+          totals={money(total, n(paid), "Paid now")}
+          status={payStatus(total, n(paid))}
+          footnote="Saving adds these materials to stock at the rates above."
+        />
+      }
     >
       <label>Vendor<select value={vendorId} onChange={(e) => setVendor(e.target.value)}><option value="">Choose…</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
       <div className="row2">
@@ -87,13 +108,42 @@ export function ProductionForm({
         requestId, productId, date, materials: usedLines, qtyProduced: produced, qtyRejected: rejected || undefined,
         labour: labour.map((l) => ({ ...l, note: l.note || undefined })), expenses: exps,
       })}
-      summary={<>
-        <h3>{nameOf(products, productId)}</h3>
-        {mats.filter((m) => n(used[m.id] ?? "") > 0).map((m) => <p key={m.id}>{m.name}: {num(used[m.id])} {m.unit}</p>)}
-        <p>Produced {num(produced)} · Rejected {num(rejected || "0")} · <b>Good {num(good)}</b> {unitOf(products, productId)}</p>
-        <p>Labour {inr(labTotal)} · Expenses {inr(expTotal)}</p>
-        <p className="muted">The exact cost per unit is calculated when you save.</p>
-      </>}
+      summary={(() => {
+        const usedMats = mats.filter((m) => n(used[m.id] ?? "") > 0);
+        const matCost = usedMats.reduce((a, m) => a + n(used[m.id]) * n(m.cost ?? "0"), 0);
+        const totalCost = matCost + labTotal + expTotal;
+        const pu = unitOf(products, productId);
+        return (
+          <DocPreview
+            kind="Production batch" date={date} party={{ label: "Product", name: nameOf(products, productId) }}
+            meta={[["Made", `${num(produced)} ${pu}`], ["Rejected", `${num(rejected || "0")} ${pu}`], ["Good units", <b key="g">{num(good)} {pu}</b>]]}
+            tables={[
+              {
+                title: "Raw materials used", head: ["Material", "Quantity", "Avg cost", "Est. amount"], right: [1, 2, 3],
+                rows: usedMats.map((m) => ({
+                  cells: [<b key="n">{m.name}</b>, `${num(used[m.id])} ${m.unit}`, inr(n(m.cost ?? "0")), inr(n(used[m.id]) * n(m.cost ?? "0"))],
+                  warn: n(used[m.id]) > n(m.stock ?? "0") ? `Only ${num(m.stock ?? "0")} ${m.unit} in stock` : undefined,
+                })),
+              },
+              {
+                title: "Labour and other expenses", head: ["Paid to / for", "Note", "Amount"], right: [2], empty: "No labour or expenses added.",
+                rows: [
+                  ...labour.map((l) => ({ cells: [<b key="n">{nameOf(workers, l.partyId)}</b>, l.note || "Labour", inr(n(l.amount))] })),
+                  ...exps.map((e) => ({ cells: [<b key="n">{e.note}</b>, "Expense", inr(n(e.amount))] })),
+                ],
+              },
+            ]}
+            totals={[
+              { label: "Materials (est.)", value: inr(matCost) },
+              { label: "Labour", value: inr(labTotal) },
+              { label: "Other expenses", value: inr(expTotal) },
+              { label: "Total cost (est.)", value: inr(totalCost), strong: true },
+              { label: `Cost per good ${pu || "unit"} (est.)`, value: good > 0 ? inr(totalCost / good) : "—" },
+            ]}
+            footnote="Materials are valued at today's average stock cost. The exact cost per unit is worked out when you save."
+          />
+        );
+      })()}
     >
       <label>Product<select value={productId} onChange={(e) => { setProduct(e.target.value); setUsed({}); }}><option value="">Choose…</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -144,7 +194,7 @@ export function ProductionForm({
 type SLine = { itemId: string; qty: string; rate: string };
 export function SaleForm({
   customers, products,
-}: { customers: Opt[]; products: (Opt & { price: string; stock: string })[] }) {
+}: { customers: Opt[]; products: (Opt & { lastRate: string; stock: string })[] }) {
   const [customerId, setCustomer] = useState("");
   const [date, setDate] = useState(todayISO());
   const [received, setReceived] = useState("");
@@ -158,11 +208,25 @@ export function SaleForm({
     <EntryShell
       valid={valid} onSaved={reset}
       submit={(requestId) => saleAction({ requestId, customerId, date, receivedNow: received || undefined, lines })}
-      summary={<>
-        <h3>{nameOf(customers, customerId)}</h3>
-        {lines.map((l, i) => <p key={i}>{nameOf(products, l.itemId)}: {num(l.qty)} × {inr(n(l.rate))} = <b>{inr(n(l.qty) * n(l.rate))}</b></p>)}
-        <p>Total <b>{inr(total)}</b> · Received now <b>{inr(n(received))}</b> · Due <b>{inr(total - n(received))}</b></p>
-      </>}
+      summary={
+        <DocPreview
+          kind="Sales invoice" date={date} party={{ label: "Bill to", name: nameOf(customers, customerId) }}
+          tables={[{
+            head: ["Product", "Quantity", "Rate", "Amount"], right: [1, 2, 3],
+            rows: lines.map((l) => {
+              const p = products.find((x) => x.id === l.itemId);
+              const short = p && n(l.qty) > n(p.stock);
+              return {
+                cells: [<b key="n">{p?.name}</b>, `${num(l.qty)} ${p?.unit ?? ""}`, inr(n(l.rate)), inr(n(l.qty) * n(l.rate))],
+                warn: short ? `Only ${num(p!.stock)} ${p!.unit} in stock` : undefined,
+              };
+            }),
+          }]}
+          totals={money(total, n(received), "Received now")}
+          status={payStatus(total, n(received))}
+          footnote="Saving takes these products out of stock. You can record the rest of the payment from the customer's page."
+        />
+      }
     >
       <label>Customer<select value={customerId} onChange={(e) => setCustomer(e.target.value)}><option value="">Choose…</option>{customers.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
       <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -170,8 +234,8 @@ export function SaleForm({
         const p = products.find((x) => x.id === l.itemId);
         return (
           <div className="card line" key={i}>
-            <label>Product<select value={l.itemId} onChange={(e) => { const q = products.find((x) => x.id === e.target.value); upd(i, { itemId: e.target.value, rate: q?.price ?? l.rate }); }}><option value="">Choose…</option>{products.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-            {p && <p className="muted">In stock: {num(p.stock)} {p.unit}</p>}
+            <label>Product<select value={l.itemId} onChange={(e) => upd(i, { itemId: e.target.value })}><option value="">Choose…</option>{products.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+            {p && <p className="muted">In stock: {num(p.stock)} {p.unit}{p.lastRate && ` · last sold at ${inr(n(p.lastRate))} per ${p.unit}`}</p>}
             <div className="row2">
               <label>Quantity<Num v={l.qty} set={(v) => upd(i, { qty: v })} /></label>
               <label>Rate (₹)<Num v={l.rate} set={(v) => upd(i, { rate: v })} /></label>

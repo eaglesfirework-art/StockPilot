@@ -20,8 +20,8 @@ export async function partyBalances(type: PartyKind) {
     if (r.partyId) paid.set(r.partyId, r._sum.amount ?? ZERO);
   return parties.map((p) => {
     const b = billed.get(p.id) ?? ZERO, pd = paid.get(p.id) ?? ZERO;
-    return { id: p.id, name: p.name, phone: p.phone, active: p.active, opening: p.openingBalance, billed: b, paid: pd,
-      balance: type === "WORKER" ? ZERO : p.openingBalance.plus(b).minus(pd) };
+    return { id: p.id, name: p.name, phone: p.phone, active: p.active, billed: b, paid: pd,
+      balance: type === "WORKER" ? ZERO : b.minus(pd) }; // only bills and payments: no opening balance
   });
 }
 
@@ -54,7 +54,7 @@ async function periodData(gte: Date, lte: Date) {
     }),
     db.productionBatch.findMany({
       where: { cancelledAt: null, date: inRange },
-      select: { qtyProduced: true, qtyRejected: true, materialCost: true, labourCost: true, otherCost: true, product: { select: { id: true, name: true, unit: true, sellingPrice: true } } },
+      select: { qtyProduced: true, qtyRejected: true, materialCost: true, labourCost: true, otherCost: true, product: { select: { id: true, name: true, unit: true } } },
     }),
   ]);
   return { pays, sales, batches };
@@ -113,11 +113,13 @@ export async function analytics(range: Range) {
   }
   const made = new Map<string, { name: string; unit: string; price: number | null; batches: number; produced: number; rejected: number; cost: number }>();
   for (const b of cur.batches) {
-    const row = made.get(b.product.id) ?? { name: b.product.name, unit: b.product.unit, price: b.product.sellingPrice ? Number(b.product.sellingPrice) : null, batches: 0, produced: 0, rejected: 0, cost: 0 };
+    const row = made.get(b.product.id) ?? { name: b.product.name, unit: b.product.unit, price: null as number | null, batches: 0, produced: 0, rejected: 0, cost: 0 };
     row.batches += 1; row.produced += Number(b.qtyProduced); row.rejected += Number(b.qtyRejected);
     row.cost += Number(b.materialCost.plus(b.labourCost).plus(b.otherCost));
     made.set(b.product.id, row);
   }
+  // No fixed selling price any more: compare the cost with the average rate it actually sold at in this period.
+  for (const [id, row] of made) { const s = sold.get(id); row.price = s && s.qty ? s.revenue / s.qty : null; }
 
   const top = (rows: typeof cust) => rows.filter((r) => r.balance.gt(0)).sort((a, b) => b.balance.comparedTo(a.balance)).slice(0, 5).map((r) => ({ id: r.id, name: r.name, value: n(r.balance) }));
   const owed = (rows: typeof cust) => n(rows.reduce((a, r) => (r.balance.gt(0) ? a.plus(r.balance) : a), ZERO));

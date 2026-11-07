@@ -3,6 +3,7 @@ import { pageUser } from "@/server/auth";
 import { db } from "@/server/db";
 import { pageOf } from "@/server/queries";
 import { docNo, dt, inr } from "@/lib/fmt";
+import { workPeriod } from "@/lib/statement";
 
 const SIZE = 15;
 
@@ -18,7 +19,7 @@ export default async function History({ searchParams }: { searchParams: { page?:
   const all = [
     ...pur.map((p) => ({ t: p.createdAt, a: docNo("PUR", p.id), b: `${p.vendor.name} · ${inr(p.total)}`, c: !!p.cancelledAt })),
     ...bat.map((b) => ({ t: b.createdAt, a: docNo("BAT", b.id), b: `${b.product.name} · ${b.qtyProduced} made · ${inr(b.costPerUnit)} each`, c: !!b.cancelledAt })),
-    ...pay.map((p) => ({ t: p.createdAt, a: docNo("PAY", p.id), b: `${p.party?.name} · ${inr(p.amount)}`, c: !!p.cancelledAt })),
+    ...pay.map((p) => ({ t: p.createdAt, a: `Labour payment no. ${p.id}`, b: `${p.party?.name} · ${inr(p.amount)} · ${workPeriod(p)}`, c: !!p.cancelledAt })),
   ].sort((x, y) => y.t.getTime() - x.t.getTime());
   const rows = all.slice((page - 1) * SIZE, page * SIZE);
   return (

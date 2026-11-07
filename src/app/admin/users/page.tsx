@@ -1,3 +1,4 @@
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { db } from "@/server/db";
 import { getUser } from "@/server/auth";
 import { usersWithActivity } from "@/server/master";
@@ -34,7 +35,7 @@ export default async function Users({ searchParams: sp }: { searchParams: SP }) 
       <h1>Users</h1>
       <FilterBar clear="/admin/users">
         <label>Search<input name="q" defaultValue={q} placeholder="Name, email or phone" /></label>
-        <label>Role<select name="role" defaultValue={role}><option value="">All</option><option value="ADMIN">Admin</option><option value="WORKER">Worker</option></select></label>
+        <label>Role<select name="role" defaultValue={role}><option value="">All</option><option value="ADMIN">Admin</option><option value="WORKER">Manager</option></select></label>
         <label>Status<select name="status" defaultValue={status}><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
       </FilterBar>
       <div className="table-wrap"><table className="collapsible">
@@ -45,7 +46,7 @@ export default async function Users({ searchParams: sp }: { searchParams: SP }) 
             return (
               <tr key={u.id} className={u.active ? "" : "inactive"}>
                 <td><b>{u.name}</b>{self && <span className="muted"> (you)</span>}</td><td>{u.email}</td><td>{formatPhone(u.phone) || "—"}</td>
-                <td>{u.role === "ADMIN" ? "Admin" : "Worker"}</td>
+                <td>{u.role === "ADMIN" ? "Admin" : "Manager"}</td>
                 <td>{u.active ? <span className="badge green">Active</span> : <span className="badge red">Inactive</span>}</td>
                 <td>
                   <RowActions
@@ -58,10 +59,10 @@ export default async function Users({ searchParams: sp }: { searchParams: SP }) 
                         <label>Mobile (India)<input name="phone" type="tel" inputMode="tel" defaultValue={formatPhone(u.phone)} placeholder="98765 43210" /></label>
                         <label>Role
                           {self
-                            ? <><select defaultValue={u.role} disabled><option value="WORKER">Worker</option><option value="ADMIN">Admin</option></select><input type="hidden" name="role" value={u.role} /></>
-                            : <select name="role" defaultValue={u.role}><option value="WORKER">Worker</option><option value="ADMIN">Admin</option></select>}
+                            ? <><select defaultValue={u.role} disabled><option value="WORKER">Manager</option><option value="ADMIN">Admin</option></select><input type="hidden" name="role" value={u.role} /></>
+                            : <select name="role" defaultValue={u.role}><option value="WORKER">Manager</option><option value="ADMIN">Admin</option></select>}
                         </label>
-                        <label>New password (leave blank to keep)<input name="password" type="password" autoComplete="new-password" minLength={8} /></label>
+                        <label>New password (leave blank to keep)<PasswordInput name="password" autoComplete="new-password" minLength={8} /></label>
                         {self
                           ? <><p className="muted">You cannot deactivate yourself.</p><input type="hidden" name="active" value="on" /></>
                           : <label className="check"><input type="checkbox" name="active" defaultChecked={u.active} />Active (inactive users cannot log in)</label>}
@@ -83,8 +84,8 @@ export default async function Users({ searchParams: sp }: { searchParams: SP }) 
         <label>Name<input name="name" required /></label>
         <label>Email<input name="email" type="email" required /></label>
         <label>Mobile (India, optional)<input name="phone" type="tel" inputMode="tel" placeholder="98765 43210" /></label>
-        <label>Role<select name="role"><option value="WORKER">Worker</option><option value="ADMIN">Admin</option></select></label>
-        <label>Password (8+ characters)<input name="password" type="password" minLength={8} required /></label>
+        <label>Role<select name="role"><option value="WORKER">Manager</option><option value="ADMIN">Admin</option></select></label>
+        <label>Password (8+ characters)<PasswordInput name="password" minLength={8} required /></label>
       </ActionForm>
     </>
   );

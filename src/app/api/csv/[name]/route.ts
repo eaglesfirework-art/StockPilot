@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, { params }: { params: { name: string
     case "customer-dues":
     case "vendor-dues": {
       const b = await partyBalances(params.name === "customer-dues" ? "CUSTOMER" : "VENDOR");
-      rows = [["Party", "Opening", "Billed", "Paid", "Balance"], ...b.map((p) => [p.name, p.opening, p.billed, p.paid, p.balance])];
+      rows = [["Party", "Billed", "Paid", "Balance"], ...b.map((p) => [p.name, p.billed, p.paid, p.balance])];
       break;
     }
     case "labour": {

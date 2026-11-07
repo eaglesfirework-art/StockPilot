@@ -13,12 +13,12 @@ async function main() {
   });
   await db.user.upsert({
     where: { email: "worker@stockpilot.local" }, update: {},
-    create: { name: "Suresh (worker)", email: "worker@stockpilot.local", role: "WORKER", passwordHash: await bcrypt.hash("worker12345", 10) },
+    create: { name: "Suresh (manager)", email: "worker@stockpilot.local", role: "WORKER", passwordHash: await bcrypt.hash("worker12345", 10) },
   });
 
   const flour = await db.item.upsert({ where: { name: "Flour" }, update: {}, create: { name: "Flour", type: "RAW_MATERIAL", unit: "kg", minStock: 50 } });
   const sugar = await db.item.upsert({ where: { name: "Sugar" }, update: {}, create: { name: "Sugar", type: "RAW_MATERIAL", unit: "kg", minStock: 10 } });
-  const pack = await db.item.upsert({ where: { name: "Biscuit pack" }, update: {}, create: { name: "Biscuit pack", type: "FINISHED_GOOD", unit: "piece", sellingPrice: 30 } });
+  const pack = await db.item.upsert({ where: { name: "Biscuit pack" }, update: {}, create: { name: "Biscuit pack", type: "FINISHED_GOOD", unit: "piece" } });
   for (const m of [flour, sugar])
     await db.productMaterial.upsert({ where: { productId_materialId: { productId: pack.id, materialId: m.id } }, update: {}, create: { productId: pack.id, materialId: m.id } });
 

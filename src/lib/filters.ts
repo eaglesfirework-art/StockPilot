@@ -46,3 +46,6 @@ export function qs(o: Record<string, string | undefined | null>) {
   const s = p.toString();
   return s ? `?${s}` : "";
 }
+
+// Labour payments whose work days overlap the chosen range (work started on or before its end, and ended on or after its start).
+export const workPeriodWhere = (r: Pick<Range, "gte" | "lte">) => ({ workFrom: { lte: r.lte }, workTo: { gte: r.gte } });

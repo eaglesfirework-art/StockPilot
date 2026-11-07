@@ -11,7 +11,7 @@ const TABS = {
   payments: { label: "Payments", List: PaymentsList },
 } as const;
 type Tab = keyof typeof TABS;
-type SP = { tab?: string; page?: string; from?: string; to?: string; status?: string; q?: string };
+type SP = { tab?: string; page?: string; from?: string; to?: string; status?: string; q?: string; by?: string };
 
 export default function Transactions({ searchParams: sp }: { searchParams: SP }) {
   const tab: Tab = sp.tab && sp.tab in TABS ? (sp.tab as Tab) : "purchases";
@@ -19,6 +19,7 @@ export default function Transactions({ searchParams: sp }: { searchParams: SP })
   const f: Filters = {
     range: dateRange(sp), page: pageOf(sp), q: sp.q?.trim() ?? "",
     status: sp.status === "saved" || sp.status === "cancelled" ? sp.status : "",
+    by: tab === "payments" && sp.by === "work" ? "work" : "",
   };
   return (
     <>
@@ -32,6 +33,11 @@ export default function Transactions({ searchParams: sp }: { searchParams: SP })
         <label>Status
           <select name="status" defaultValue={f.status}><option value="">All</option><option value="saved">Saved</option><option value="cancelled">Cancelled</option></select>
         </label>
+        {tab === "payments" && (
+          <label>Dates match
+            <select name="by" defaultValue={f.by}><option value="">Payment date</option><option value="work">Labour work period</option></select>
+          </label>
+        )}
         <label>Search<input name="q" defaultValue={f.q} placeholder={tab === "production" ? "Product or note" : tab === "payments" ? "Party or note" : "Party, item or note"} /></label>
       </DateFilter>
       <List f={f} />

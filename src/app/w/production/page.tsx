@@ -9,8 +9,8 @@ export default async function Production() {
     db.productMaterial.findMany({ include: { material: true }, orderBy: { id: "asc" } }),
     db.party.findMany({ where: { type: "WORKER", active: true }, orderBy: { name: "asc" } }),
   ]);
-  const mapping: Record<string, { id: string; name: string; unit: string }[]> = {};
-  for (const m of maps) if (m.material.active) (mapping[m.productId] ??= []).push({ id: m.material.id, name: m.material.name, unit: m.material.unit });
+  const mapping: Record<string, { id: string; name: string; unit: string; cost: string; stock: string }[]> = {};
+  for (const m of maps) if (m.material.active) (mapping[m.productId] ??= []).push({ id: m.material.id, name: m.material.name, unit: m.material.unit, cost: m.material.avgCost.toString(), stock: m.material.qtyOnHand.toString() });
   return (
     <>
       <h1>Production</h1>
