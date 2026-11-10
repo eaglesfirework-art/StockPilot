@@ -185,7 +185,7 @@ table.statement tr.opening td { background: var(--subtle); }
 .kpi-note { color: var(--muted); font-size: .8rem; }
 .delta { display: block; font-size: .8rem; margin-top: .4rem; color: var(--ink-2); }
 .delta.good { color: var(--good-text); } .delta.bad { color: var(--bad-text); }
-.bad-v { color: var(--bad-text); }
+.good-v { color: var(--good-text); } .bad-v { color: var(--bad-text); }
 .delta .was { margin-left: 0; }
 .viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: .8rem; margin: 0 0 .8rem; }
 .viz-grid.thirds { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }

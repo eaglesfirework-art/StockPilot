@@ -6,7 +6,7 @@ import { dashboardSummary } from "@/server/insights";
 import { dateRange } from "@/lib/filters";
 import { inr, inr0 } from "@/lib/fmt";
 
-// A negative profit is shown as a plain amount in red, never with the word "loss" or a minus sign.
+// The label says Profit or Loss; the amount is plain (no minus sign), green for profit and red for loss.
 const abs = (v: number) => inr(Math.abs(v));
 const abs0 = (v: number) => inr0(Math.abs(v));
 
@@ -28,7 +28,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { from
 
       <div className="kpis dash-kpis">
         <div data-testid="dash-profit">
-          <Kpi label="Profit" value={abs0(cur.profit)} note="Sales − raw materials bought − labour" cur={cur.profit} prev={prev.profit} fmt={abs0} vs={vs} redBelowZero />
+          <Kpi label={loss ? "Loss" : "Profit"} value={abs0(cur.profit)} note="Sales − raw materials bought − labour" cur={cur.profit} prev={prev.profit} fmt={abs0} vs={vs} signColors />
         </div>
         <div className="kpi" data-testid="dash-receivable">
           <div className="kpi-label">Customers owe me</div>
@@ -54,9 +54,9 @@ export default async function Dashboard({ searchParams }: { searchParams: { from
             <tr><td className="op">less</td><td>Raw materials bought <span className="muted">(purchase bills)</span></td><td className="r">{inr(cur.materials)}</td><td className="r">{inr(prev.materials)}</td></tr>
             <tr><td className="op">less</td><td>Labour charges</td><td className="r">{inr(cur.labour)}</td><td className="r">{inr(prev.labour)}</td></tr>
             <tr className="total-row">
-              <td className="op">=</td><td><b>Profit</b></td>
+              <td className="op">=</td><td><b>{loss ? "Loss" : "Profit"}</b></td>
               <td className={`r ${loss ? "bad-t" : "good-t"}`}><b>{abs(cur.profit)}</b></td>
-              <td className={`r ${prev.profit < 0 ? "bad-t" : ""}`}>{abs(prev.profit)}</td>
+              <td className={`r ${prev.profit < 0 ? "bad-t" : prev.profit > 0 ? "good-t" : ""}`}>{abs(prev.profit)}</td>
             </tr>
           </tbody>
         </table></div>

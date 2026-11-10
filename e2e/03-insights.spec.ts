@@ -114,7 +114,7 @@ test("dashboard: profit = sales − raw materials − labour, and who owes what"
   await page.goto("/admin?from=2026-10-01&to=2026-10-30");
   // October: 6,400 sold − 7,400 raw materials bought − 2,900 labour = 3,900 loss (September: 9,000 − 6,500 − 2,000 = 500 profit)
   const profit = page.getByTestId("dash-profit");
-  await expect(profit.locator(".kpi-label")).toHaveText("Profit");
+  await expect(profit.locator(".kpi-label")).toHaveText("Loss");
   await expect(profit.locator(".kpi-value")).toHaveText("₹3,900");
   await expect(profit.locator(".kpi-value")).toHaveClass(/bad-v/);
   await expect(profit).toContainText("vs ₹500 in the previous 30 days");
@@ -123,7 +123,6 @@ test("dashboard: profit = sales − raw materials − labour, and who owes what"
   await expect(calc.locator("tbody tr").nth(1)).toContainText("₹7,400.00");
   await expect(calc.locator("tbody tr").nth(2)).toContainText("₹2,900.00");
   await expect(calc.locator("tbody tr").nth(3)).toContainText("₹3,900.00");
-  await expect(calc.locator("tbody tr").nth(3)).not.toContainText("loss");
   await expect(calc.locator("tbody tr").nth(3)).toContainText("₹500.00");
   await expect(page.locator("main")).not.toContainText(/[−-]₹/); // no negative amounts anywhere
   await expect(page.getByTestId("dash-receivable").locator(".kpi-value")).toHaveText("₹2,900");
