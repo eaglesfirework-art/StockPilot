@@ -49,6 +49,8 @@ model User {
   passwordHash String
   role         Role     @default(WORKER)
   active       Boolean  @default(true)
+  // The one login allowed right now. A newer login replaces it and signs the older device out.
+  sessionId    String?
   createdAt    DateTime @default(now())
 }
 
@@ -157,6 +159,8 @@ model Payment {
   amount       Decimal          @db.Decimal(14, 2)
   date         DateTime
   note         String?
+  // Expenses only: the person who was paid (they are not a saved party).
+  paidTo       String?
   purchaseId   Int?
   purchase     Purchase?        @relation(fields: [purchaseId], references: [id])
   saleId       Int?

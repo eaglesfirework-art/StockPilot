@@ -67,12 +67,12 @@ async function loadParty(tx: Tx, id: string, type: "VENDOR" | "CUSTOMER" | "WORK
 
 async function addPayment(
   tx: Tx,
-  p: { requestId: string; kind: PaymentKind; partyId?: string; amount: Dec; date: Date; note?: string;
+  p: { requestId: string; kind: PaymentKind; partyId?: string; amount: Dec; date: Date; note?: string; paidTo?: string;
        purchaseId?: number; saleId?: number; batchId?: number; workFrom?: Date; workTo?: Date; userId: string },
 ) {
   return tx.payment.create({
     data: {
-      requestId: p.requestId, kind: p.kind, partyId: p.partyId, amount: p.amount, date: p.date, note: p.note,
+      requestId: p.requestId, kind: p.kind, partyId: p.partyId, amount: p.amount, date: p.date, note: p.note, paidTo: p.paidTo,
       purchaseId: p.purchaseId, saleId: p.saleId, batchId: p.batchId, createdById: p.userId,
       // only labour carries a work period
       ...(p.kind === "LABOUR" && { workFrom: p.workFrom, workTo: p.workTo }),
@@ -199,7 +199,7 @@ const BatchIn = z.object({
   qtyProduced: pos,
   qtyRejected: nonneg.optional(),
   labour: z.array(z.object({ partyId: z.string().min(1, "Choose a labour"), amount: pos, note: text })).default([]),
-  expenses: z.array(z.object({ note: z.string().trim().min(1, "Describe the expense"), amount: pos })).default([]),
+  expenses: z.array(z.object({ note: z.string().trim().min(1, "Describe the expense"), paidTo: z.string().trim().min(1, "Enter who was paid"), amount: pos })).default([]),
 });
 
 export async function createBatch(userId: string, raw: unknown) {
@@ -253,7 +253,7 @@ export async function createBatch(userId: string, raw: unknown) {
           labourCost = labourCost.plus(l.amount);
         }
         for (const [n, e] of i.expenses.entries()) {
-          await addPayment(tx, { requestId: `${i.requestId}:E${n}`, kind: "EXPENSE", amount: e.amount, date: i.date, note: e.note, batchId: batch.id, userId });
+          await addPayment(tx, { requestId: `${i.requestId}:E${n}`, kind: "EXPENSE", amount: e.amount, date: i.date, note: e.note, paidTo: e.paidTo, batchId: batch.id, userId });
           otherCost = otherCost.plus(e.amount);
         }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
@@ -6,8 +7,11 @@ import { db } from "./db";
 import { UserError } from "./errors";
 import { COOKIE, authKey } from "../lib/secret";
 
+// One login per account: each login stores a new session id, so any older cookie stops matching.
 export async function startSession(u: { id: string; role: string }) {
-  const token = await new SignJWT({ role: u.role })
+  const sid = randomUUID();
+  await db.user.update({ where: { id: u.id }, data: { sessionId: sid } });
+  const token = await new SignJWT({ role: u.role, sid })
     .setSubject(u.id).setProtectedHeader({ alg: "HS256" }).setExpirationTime("12h").sign(authKey());
   cookies().set(COOKIE, token, {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 12,
@@ -24,7 +28,7 @@ export async function getUser() {
   try {
     const { payload } = await jwtVerify(t, authKey());
     const u = await db.user.findUnique({ where: { id: String(payload.sub) } });
-    return u && u.active ? u : null;
+    return u && u.active && payload.sid === u.sessionId ? u : null;
   } catch {
     return null;
   }

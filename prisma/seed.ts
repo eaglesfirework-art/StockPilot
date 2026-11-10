@@ -39,7 +39,7 @@ async function main() {
     await createBatch(admin.id, {
       requestId: "demo-bat-1", productId: pack.id, date: d, qtyProduced: 400, qtyRejected: 20,
       materials: [{ itemId: flour.id, qty: 50 }, { itemId: sugar.id, qty: 20 }],
-      labour: [{ partyId: ramesh.id, amount: 3000 }], expenses: [{ note: "Gas", amount: 900 }],
+      labour: [{ partyId: ramesh.id, amount: 3000 }], expenses: [{ note: "Gas", paidTo: "Gas supplier", amount: 900 }],
     });
     await createSale(admin.id, { requestId: "demo-sal-1", customerId: C.id, date: d, receivedNow: 1000, lines: [{ itemId: pack.id, qty: 100, rate: 30 }] });
     console.log("Demo data posted (plan section 6, steps 1-5).");

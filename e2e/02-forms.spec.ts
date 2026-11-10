@@ -30,6 +30,7 @@ async function batch(page: Page, o: { date: string; flour: string; sugar: string
   await page.getByRole("button", { name: "+ Add expense" }).click();
   const exp = page.locator(".card.line").nth(1);
   await exp.getByLabel("What for").fill("gas");
+  await exp.getByLabel("Paid to (name)").fill("Gas supplier");
   await exp.getByLabel("Amount (₹)").fill(o.gas);
   return reviewAndSave(page, o.shot);
 }

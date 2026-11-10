@@ -80,7 +80,7 @@ export function ReceiveForm({ vendors, items }: { vendors: Opt[]; items: Opt[] }
 
 // ---------------- Production batch ----------------
 type Lab = { partyId: string; amount: string; note: string };
-type Exp = { note: string; amount: string };
+type Exp = { note: string; paidTo: string; amount: string };
 export function ProductionForm({
   products, mapping, workers,
 }: { products: Opt[]; mapping: Record<string, Opt[]>; workers: Opt[] }) {
@@ -96,7 +96,7 @@ export function ProductionForm({
   const usedLines = mats.filter((m) => n(used[m.id] ?? "") > 0).map((m) => ({ itemId: m.id, qty: used[m.id] }));
   const good = n(produced) - n(rejected);
   const valid = !!productId && usedLines.length > 0 && good > 0 &&
-    labour.every((l) => l.partyId && n(l.amount) > 0) && exps.every((e) => e.note.trim() && n(e.amount) > 0);
+    labour.every((l) => l.partyId && n(l.amount) > 0) && exps.every((e) => e.note.trim() && e.paidTo.trim() && n(e.amount) > 0);
   const labTotal = labour.reduce((a, l) => a + n(l.amount), 0);
   const expTotal = exps.reduce((a, e) => a + n(e.amount), 0);
   const reset = () => { setProduct(""); setUsed({}); setProduced(""); setRejected(""); setLabour([]); setExps([]); };
@@ -129,7 +129,7 @@ export function ProductionForm({
                 title: "Labour and other expenses", head: ["Paid to / for", "Note", "Amount"], right: [2], empty: "No labour or expenses added.",
                 rows: [
                   ...labour.map((l) => ({ cells: [<b key="n">{nameOf(workers, l.partyId)}</b>, l.note || "Labour", inr(n(l.amount))] })),
-                  ...exps.map((e) => ({ cells: [<b key="n">{e.note}</b>, "Expense", inr(n(e.amount))] })),
+                  ...exps.map((e) => ({ cells: [<b key="n">{e.note}</b>, `Paid to ${e.paidTo}`, inr(n(e.amount))] })),
                 ],
               },
             ]}
@@ -180,12 +180,13 @@ export function ProductionForm({
         <div className="card line" key={i}>
           <div className="row2">
             <label>What for<input value={e.note} onChange={(ev) => setExps(exps.map((x, k) => (k === i ? { ...x, note: ev.target.value } : x)))} /></label>
-            <label>Amount (₹)<Num v={e.amount} set={(v) => setExps(exps.map((x, k) => (k === i ? { ...x, amount: v } : x)))} /></label>
+            <label>Paid to (name)<input value={e.paidTo} onChange={(ev) => setExps(exps.map((x, k) => (k === i ? { ...x, paidTo: ev.target.value } : x)))} /></label>
           </div>
+          <label>Amount (₹)<Num v={e.amount} set={(v) => setExps(exps.map((x, k) => (k === i ? { ...x, amount: v } : x)))} /></label>
           <button className="link" onClick={() => setExps(exps.filter((_, k) => k !== i))}>Remove</button>
         </div>
       ))}
-      <button className="btn" onClick={() => setExps([...exps, { note: "", amount: "" }])}>+ Add expense</button>
+      <button className="btn" onClick={() => setExps([...exps, { note: "", paidTo: "", amount: "" }])}>+ Add expense</button>
     </EntryShell>
   );
 }

@@ -4,9 +4,11 @@ import { Kpi } from "@/components/viz/Kpi";
 import { RankBars } from "@/components/viz/RankBars";
 import { dashboardSummary } from "@/server/insights";
 import { dateRange } from "@/lib/filters";
-import { inr, inr0, pl } from "@/lib/fmt";
+import { inr, inr0 } from "@/lib/fmt";
 
-const pl0 = (v: number) => pl(v, inr0);
+// A negative profit is shown as a plain amount in red, never with the word "loss" or a minus sign.
+const abs = (v: number) => inr(Math.abs(v));
+const abs0 = (v: number) => inr0(Math.abs(v));
 
 // Kept simple on purpose: one profit number (sales - raw materials bought - labour) and who owes what.
 export default async function Dashboard({ searchParams }: { searchParams: { from?: string; to?: string } }) {
@@ -26,7 +28,7 @@ export default async function Dashboard({ searchParams }: { searchParams: { from
 
       <div className="kpis dash-kpis">
         <div data-testid="dash-profit">
-          <Kpi label={loss ? "Loss" : "Profit"} value={pl0(cur.profit)} note="Sales − raw materials bought − labour" cur={cur.profit} prev={prev.profit} fmt={pl0} vs={vs} />
+          <Kpi label="Profit" value={abs0(cur.profit)} note="Sales − raw materials bought − labour" cur={cur.profit} prev={prev.profit} fmt={abs0} vs={vs} redBelowZero />
         </div>
         <div className="kpi" data-testid="dash-receivable">
           <div className="kpi-label">Customers owe me</div>
@@ -52,9 +54,9 @@ export default async function Dashboard({ searchParams }: { searchParams: { from
             <tr><td className="op">less</td><td>Raw materials bought <span className="muted">(purchase bills)</span></td><td className="r">{inr(cur.materials)}</td><td className="r">{inr(prev.materials)}</td></tr>
             <tr><td className="op">less</td><td>Labour charges</td><td className="r">{inr(cur.labour)}</td><td className="r">{inr(prev.labour)}</td></tr>
             <tr className="total-row">
-              <td className="op">=</td><td><b>{loss ? "Loss" : "Profit"}</b></td>
-              <td className={`r ${loss ? "bad-t" : "good-t"}`}><b>{pl(cur.profit)}</b></td>
-              <td className={`r ${prev.profit < 0 ? "bad-t" : ""}`}>{pl(prev.profit)}</td>
+              <td className="op">=</td><td><b>Profit</b></td>
+              <td className={`r ${loss ? "bad-t" : "good-t"}`}><b>{abs(cur.profit)}</b></td>
+              <td className={`r ${prev.profit < 0 ? "bad-t" : ""}`}>{abs(prev.profit)}</td>
             </tr>
           </tbody>
         </table></div>

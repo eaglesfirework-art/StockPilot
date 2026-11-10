@@ -116,13 +116,13 @@ describe("business insights (previous period: September, this period: October)",
     await createPurchase(admin, { requestId: rid(), vendorId: ids.anand, date: "2026-09-05", paidNow: 4000, lines: [{ itemId: flour, qty: 100, rate: 40 }] });
     await createPurchase(admin, { requestId: rid(), vendorId: ids.shree, date: "2026-09-05", paidNow: 2500, lines: [{ itemId: sugar, qty: 50, rate: 50 }] });
     await createBatch(admin, { requestId: rid(), productId: pack, date: "2026-09-06", qtyProduced: 400, materials: [{ itemId: flour, qty: 50 }, { itemId: sugar, qty: 20 }],
-      labour: [{ partyId: ids.ramesh, amount: 2000 }], expenses: [{ note: "gas", amount: 500 }] });
+      labour: [{ partyId: ids.ramesh, amount: 2000 }], expenses: [{ note: "gas", paidTo: "Gas supplier", amount: 500 }] });
     await createSale(admin, { requestId: rid(), customerId: ids.metro, date: "2026-09-07", receivedNow: 9000, lines: [{ itemId: pack, qty: 300, rate: 30 }] });
     // October: prices up, more material per pack
     await createPurchase(admin, { requestId: rid(), vendorId: ids.anand, date: "2026-10-10", paidNow: 2000, lines: [{ itemId: flour, qty: 100, rate: 46 }] });
     await createPurchase(admin, { requestId: rid(), vendorId: ids.shree, date: "2026-10-10", lines: [{ itemId: sugar, qty: 50, rate: 56 }] });
     await createBatch(admin, { requestId: rid(), productId: pack, date: "2026-10-12", qtyProduced: 400, materials: [{ itemId: flour, qty: 60 }, { itemId: sugar, qty: 25 }],
-      labour: [{ partyId: ids.ramesh, amount: 2400 }], expenses: [{ note: "gas", amount: 600 }] });
+      labour: [{ partyId: ids.ramesh, amount: 2400 }], expenses: [{ note: "gas", paidTo: "Gas supplier", amount: 600 }] });
     await createSale(admin, { requestId: rid(), customerId: ids.city, date: "2026-10-15", receivedNow: 2000, lines: [{ itemId: pack, qty: 200, rate: 32 }] });
     await createPayment(admin, { requestId: rid(), kind: "LABOUR", partyId: ids.ramesh, amount: 500, date: "2026-10-17", note: "advance", workFrom: "2026-10-13", workTo: "2026-10-17" });
     await createPayment(admin, { requestId: rid(), kind: "VENDOR_PAYMENT", partyId: ids.anand, amount: 1000, date: "2026-10-18" });

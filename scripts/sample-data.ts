@@ -72,13 +72,13 @@ async function main() {
       await createBatch(suresh.id, {
         requestId: rid(), productId: biscuit.id, date: day(d), qtyProduced: good + 20, qtyRejected: 20,
         materials: [{ itemId: flour.id, qty: round(good * 0.11, 1) }, { itemId: sugar.id, qty: round(good * (0.04 + 0.008 * t), 1) }, { itemId: ghee.id, qty: round(good * (0.012 + 0.002 * t), 2) }, { itemId: box.id, qty: good + 20 }],
-        labour: [{ partyId: ramesh.id, amount: round(good * (2.2 + 0.5 * t)) }], expenses: [{ note: "Gas", amount: round(450 + 100 * t) }],
+        labour: [{ partyId: ramesh.id, amount: round(good * (2.2 + 0.5 * t)) }], expenses: [{ note: "Gas", paidTo: "Gas supplier", amount: round(450 + 100 * t) }],
       });
     }
     const jars = 120 + Math.round(rnd() * 40);
     await createBatch(ravi.id, {
       requestId: rid(), productId: cookie.id, date: day(2), qtyProduced: jars, materials: [{ itemId: flour.id, qty: round(jars * 0.35, 1) }, { itemId: sugar.id, qty: round(jars * 0.12, 1) }, { itemId: ghee.id, qty: round(jars * 0.08, 2) }, { itemId: box.id, qty: jars }],
-      labour: [{ partyId: lata.id, amount: round(jars * 9) }], expenses: [{ note: "Electricity", amount: 300 }],
+      labour: [{ partyId: lata.id, amount: round(jars * 9) }], expenses: [{ note: "Electricity", paidTo: "Electricity board", amount: 300 }],
     });
 
     // Sales (Wed, Fri, Sat). Prices held, so the margin is squeezed. Hotel Sagar pays late.

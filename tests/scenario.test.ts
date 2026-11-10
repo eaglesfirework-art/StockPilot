@@ -47,7 +47,7 @@ describe("section 6 worked example", () => {
     const b = await createBatch(admin, {
       requestId: "test-req-b1", productId: pack, date: D, qtyProduced: 400, qtyRejected: 20,
       materials: [{ itemId: flour, qty: 50 }, { itemId: sugar, qty: 20 }],
-      labour: [{ partyId: ramesh, amount: 3000 }], expenses: [{ note: "Gas", amount: 900 }],
+      labour: [{ partyId: ramesh, amount: 3000 }], expenses: [{ note: "Gas", paidTo: "Gas supplier", amount: 900 }],
     });
     batchId = b.id;
     near(b.materialCost, 3100); near(b.labourCost, 3000); near(b.otherCost, 900); expect(b.costPerUnit.toFixed(4)).toBe("18.4211");

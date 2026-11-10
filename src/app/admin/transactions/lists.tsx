@@ -110,7 +110,7 @@ const PAYMENT_LABEL = { CUSTOMER_RECEIPT: "Customer receipt (in)", VENDOR_PAYMEN
 
 export async function PaymentsList({ f }: Props) {
   const rows = await db.payment.findMany({
-    where: { ...(f.by === "work" ? { kind: "LABOUR" as const, ...workPeriodWhere(f.range) } : dateWhere(f)), ...statusWhere(f), ...(f.q && { OR: [{ party: { name: ci(f.q) } }, { note: ci(f.q) }] }) },
+    where: { ...(f.by === "work" ? { kind: "LABOUR" as const, ...workPeriodWhere(f.range) } : dateWhere(f)), ...statusWhere(f), ...(f.q && { OR: [{ party: { name: ci(f.q) } }, { paidTo: ci(f.q) }, { note: ci(f.q) }] }) },
     orderBy: { id: "desc" }, ...paging(f), include: { party: true },
   });
   return (
@@ -119,7 +119,7 @@ export async function PaymentsList({ f }: Props) {
         <thead><tr><th>No.</th><th>Date</th><th>Type</th><th>Party</th><th className="r">Amount</th><th>For</th><th>Work period</th><th>Note</th><th>Status</th><th></th></tr></thead>
         <tbody>{rows.slice(0, PAGE).map((p) => (
           <tr key={p.id} className={p.cancelledAt ? "cancelled" : ""}>
-            <td>{docNo("PAY", p.id)}</td><td>{dOnly(p.date)}</td><td>{PAYMENT_LABEL[p.kind]}</td><td className="keep">{p.party?.name}</td><td className="r">{inr(p.amount)}</td>
+            <td>{docNo("PAY", p.id)}</td><td>{dOnly(p.date)}</td><td>{PAYMENT_LABEL[p.kind]}</td><td className="keep">{p.party?.name ?? p.paidTo}</td><td className="r">{inr(p.amount)}</td>
             <td>{p.purchaseId ? docNo("PUR", p.purchaseId) : p.saleId ? docNo("SAL", p.saleId) : p.batchId ? docNo("BAT", p.batchId) : ""}</td>
             <td>{workPeriod(p).replace(/^Work (on )?/, "")}</td>
             <td>{p.note}</td>
