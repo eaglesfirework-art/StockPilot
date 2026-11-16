@@ -374,3 +374,15 @@ table.calc td { white-space: normal; }
 table.calc td.op { width: 3.5rem; color: var(--ink-3); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
 table.calc tr.total-row td { border-top: 1px solid var(--ink); font-size: 1rem; }
 @media (max-width: 700px) { table.calc td.op { display: none; } }
+
+/* Labour attendance: one row per labour with a Present / Absent switch */
+.att-list { display: grid; gap: .5rem; margin-top: .8rem; }
+.att-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin: 0; padding: .55rem .8rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.att-row legend { float: left; display: flex; align-items: center; gap: .5rem; padding: 0; font-weight: 550; color: var(--ink); }
+.att-toggle { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--radius); overflow: hidden; margin-left: auto; }
+.att-toggle label { position: relative; display: inline-flex; align-items: center; margin: 0; padding: 0 1rem; min-height: 40px; cursor: pointer; color: var(--ink-2); font-weight: 500; user-select: none; }
+.att-toggle label + label { border-left: 1px solid var(--line-2); }
+.att-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; border: 0; }
+.att-toggle label:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: -2px; }
+.att-toggle .att-p:has(input:checked) { background: var(--ok-bg); color: var(--ok); }
+.att-toggle .att-a:has(input:checked) { background: var(--err-bg); color: var(--err); }

@@ -12,10 +12,12 @@ import { dateRange, qs } from "@/lib/filters";
 import { formatPhone } from "@/lib/phone";
 import { buildStatement } from "@/lib/statement";
 import { dOnly, docNo, inr, owed, todayISO } from "@/lib/fmt";
+import { AutoForm } from "@/components/AutoForm";
+import { labourMonth } from "@/server/attendance";
 
 const lineSel = { select: { qty: true, rate: true, item: { select: { name: true, unit: true } } } } as const;
 
-export default async function Statement({ params, searchParams }: { params: { id: string }; searchParams: { from?: string; to?: string; page?: string } }) {
+export default async function Statement({ params, searchParams }: { params: { id: string }; searchParams: { from?: string; to?: string; page?: string; month?: string } }) {
   const p = await db.party.findUnique({ where: { id: params.id } });
   if (!p) notFound();
   const cust = p.type === "CUSTOMER", vend = p.type === "VENDOR", owes = cust || vend;
@@ -55,6 +57,9 @@ export default async function Statement({ params, searchParams }: { params: { id
       if (due.gt(ZERO)) open.push({ id: b.id, label: `${docNo("SAL", b.id)} · due ${inr(due)}` });
     }
 
+  const att = owes ? null : await labourMonth(searchParams.month, p.id);
+  const am = att?.byParty.get(p.id) ?? { present: 0, absent: 0, paid: 0, absentDates: [] as Date[] };
+
   const kind = vend ? "Vendor" : cust ? "Customer" : "Labour";
   const back = vend ? "vendors" : cust ? "customers" : "labours";
   return (
@@ -70,6 +75,26 @@ export default async function Statement({ params, searchParams }: { params: { id
         <div className="kpi"><div className="kpi-label">{owes ? (vend ? "Bills in period" : "Invoices in period") : "Paid in period"}</div><div className="kpi-value">{inr(owes ? totals.inc : totals.dec)}</div></div>
         {owes && <div className="kpi"><div className="kpi-label">{vend ? "Paid in period" : "Received in period"}</div><div className="kpi-value">{inr(totals.dec)}</div></div>}
       </div>
+
+      {att && (
+        <section className="viz-card">
+          <h3 className="viz-title">Attendance and pay by month</h3>
+          <AutoForm>
+            <input type="hidden" name="from" value={searchParams.from ?? ""} />
+            <input type="hidden" name="to" value={searchParams.to ?? ""} />
+            <label className="date">Month<input type="month" name="month" defaultValue={att.range.month} /></label>
+          </AutoForm>
+          <div className="kpis">
+            <div className="kpi"><div className="kpi-label">Days absent in {att.range.label}</div><div className="kpi-value" data-testid="days-absent">{am.absent}</div></div>
+            <div className="kpi"><div className="kpi-label">Days present</div><div className="kpi-value">{am.present}</div></div>
+            <div className="kpi"><div className="kpi-label">Paid in {att.range.label}</div><div className="kpi-value" data-testid="paid-in-month">{inr(am.paid)}</div></div>
+          </div>
+          <p className="muted">
+            {am.absentDates.length ? <>Absent on: {am.absentDates.map((d) => dOnly(d)).join(", ")}.</> : "No absences marked this month."}
+            {" "}{att.range.days - am.present - am.absent} day(s) not marked. <Link href="/w/attendance">Mark attendance</Link>
+          </p>
+        </section>
+      )}
 
       {owes && (
         <div className="pay-box">
@@ -88,7 +113,7 @@ export default async function Statement({ params, searchParams }: { params: { id
       )}
 
       <h2>Statement</h2>
-      <DateFilter range={range} />
+      <DateFilter range={range} hidden={{ month: searchParams.month }} />
       <div className="table-wrap"><table className="statement">
         <thead><tr><th>Date</th><th>Description</th><th>Voucher</th><th className="r">{vend ? "Billed" : cust ? "Invoiced" : ""}</th><th className="r">{vend ? "Paid" : cust ? "Received" : "Paid"}</th>{owes && <th className="r">Balance</th>}</tr></thead>
         <tbody>
@@ -112,7 +137,7 @@ export default async function Statement({ params, searchParams }: { params: { id
           {shown.length === 0 && <tr><td colSpan={owes ? 6 : 5} className="muted">No entries in this period.</td></tr>}
         </tbody>
       </table></div>
-      <Pager page={page} hasMore={inPeriod.length > page * PAGE} base={`/admin/party/${p.id}${qs({ from: range.from, to: range.to })}`} />
+      <Pager page={page} hasMore={inPeriod.length > page * PAGE} base={`/admin/party/${p.id}${qs({ from: range.from, to: range.to, month: searchParams.month })}`} />
       {owes && <p className="muted">Balance = {vend ? "bills" : "invoices"} − {vend ? "payments" : "receipts"}. Cancelled entries are shown struck through and do not count.</p>}
     </>
   );

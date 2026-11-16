@@ -11,7 +11,8 @@ import {
   updateDocNote, updateItem, updateParty, updateProfile, updateUser,
 } from "./master";
 import type { Result } from "../lib/types";
-import { docNo, inr } from "../lib/fmt";
+import { dOnly, docNo, inr } from "../lib/fmt";
+import { dayDate, saveAttendance } from "./attendance";
 import { ZERO } from "../lib/dec";
 import { workPeriod } from "../lib/statement";
 
@@ -66,6 +67,16 @@ export async function labourAction(_p: Result | null, fd: FormData) {
     });
     const who = await db.party.findUnique({ where: { id: p.partyId ?? "" } });
     return `Labour payment of ${inr(p.amount)} to ${who?.name ?? "labour"} saved (payment no. ${p.id}). ${workPeriod(p)}.`;
+  });
+}
+// Attendance form: one radio per labour named "m_<partyId>" with value P (present) or A (absent).
+export async function attendanceAction(_p: Result | null, fd: FormData) {
+  return run(async () => {
+    const u = await requireUser();
+    const marks: { partyId: string; present: boolean }[] = [];
+    fd.forEach((v, k) => { if (k.startsWith("m_") && (v === "P" || v === "A")) marks.push({ partyId: k.slice(2), present: v === "P" }); });
+    const r = await saveAttendance(u.id, { date: s(fd, "date"), marks });
+    return `Attendance saved for ${dOnly(dayDate(r.date))}: ${r.present} present, ${r.absent} absent.`;
   });
 }
 

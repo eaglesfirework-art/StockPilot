@@ -12,7 +12,7 @@ const nav: [string, string][] = [
   ["/admin/reports", "Reports"], ["/admin/users", "Users"], ["/admin/log", "Log"],
 ];
 const entry: [string, string][] = [
-  ["/w/receive", "Receive materials"], ["/w/production", "Production batch"], ["/w/labour", "Labour payment"], ["/admin/sales/new", "New sale"],
+  ["/w/receive", "Receive materials"], ["/w/production", "Production batch"], ["/w/labour", "Labour payment"], ["/w/attendance", "Labour attendance"],["/admin/sales/new", "New sale"],
 ];
 
 export const dynamic = "force-dynamic";

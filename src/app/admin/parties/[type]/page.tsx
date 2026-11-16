@@ -10,11 +10,12 @@ import { partyAction, partyDeleteAction, partyUpdateAction } from "@/server/acti
 import { qs } from "@/lib/filters";
 import { formatPhone } from "@/lib/phone";
 import { inr, owed } from "@/lib/fmt";
+import { labourMonth } from "@/server/attendance";
 
 const TYPES: Record<string, { kind: PartyKind; title: string }> = {
   customers: { kind: "CUSTOMER", title: "Customers" }, vendors: { kind: "VENDOR", title: "Vendors" }, labours: { kind: "WORKER", title: "Labours" },
 };
-type SP = { q?: string; status?: string; due?: string; page?: string };
+type SP = { q?: string; status?: string; due?: string; page?: string; month?: string };
 
 export default async function Parties({ params, searchParams: sp }: { params: { type: string }; searchParams: SP }) {
   const t = TYPES[params.type];
@@ -24,8 +25,9 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
   const status = sp.status === "active" || sp.status === "inactive" ? sp.status : "";
   const dueOnly = sp.due === "1" && !worker;
   const page = pageOf(sp);
-  const [all, counts] = await Promise.all([
+  const [all, lm, counts] = await Promise.all([
     partyBalances(t.kind),
+    worker ? labourMonth(sp.month) : null,
     db.party.findMany({ where: { type: t.kind }, select: { id: true, _count: { select: { purchases: true, sales: true, payments: true } } } }),
   ]);
   const used = new Map(counts.map((c) => [c.id, c._count.purchases + c._count.sales + c._count.payments]));
@@ -35,22 +37,29 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
     (!status || p.active === (status === "active")) && (!dueOnly || p.balance.gt(0)));
   const rows = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE);
   const label = t.title.toLowerCase();
-  const cols = worker ? 5 : 7;
+  const cols = worker ? 8 : 7;
+  const none = { present: 0, absent: 0, paid: 0 };
   return (
     <>
       <header className="page-head"><h1>{t.title}</h1><p className="muted">{worker ? "Labour teams paid for production work." : t.kind === "VENDOR" ? "Suppliers of raw materials, and what we owe each of them." : "Who buys our products, and what each of them owes us."}</p></header>
       <FilterBar clear={`/admin/parties/${params.type}`}>
         <label>Search<input name="q" defaultValue={sp.q ?? ""} placeholder="Name or phone" /></label>
         <label>Status<select name="status" defaultValue={status}><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+        {worker && lm && <label className="date">Month<input type="month" name="month" defaultValue={lm.range.month} /></label>}
         {!worker && <label className="check-label"><span><input type="checkbox" name="due" value="1" defaultChecked={dueOnly} />{t.kind === "CUSTOMER" ? "Only those who owe us" : "Only those we owe"}</span></label>}
       </FilterBar>
       <div className="table-wrap"><table className="collapsible">
-        <thead><tr><th>Name</th><th>Phone</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Invoiced" : "Billed"}</th>}<th className="r">{worker ? "Total paid" : "Paid"}</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Owes us" : "We owe"}</th>}<th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Invoiced" : "Billed"}</th>}{worker && lm && <><th className="r">Present</th><th className="r">Absent</th><th className="r">Paid in {lm.range.label}</th></>}<th className="r">{worker ? "Total paid" : "Paid"}</th>{!worker && <th className="r">{t.kind === "CUSTOMER" ? "Owes us" : "We owe"}</th>}<th>Status</th><th></th></tr></thead>
         <tbody>
           {rows.map((p) => (
             <tr key={p.id} className={p.active ? "" : "inactive"}>
-              <td><Link href={`/admin/party/${p.id}`}><b>{p.name}</b></Link></td><td>{formatPhone(p.phone) || "—"}</td>
+              <td><Link href={`/admin/party/${p.id}${worker && sp.month ? `?month=${sp.month}` : ""}`}><b>{p.name}</b></Link></td><td>{formatPhone(p.phone) || "—"}</td>
               {!worker && <td className="r">{inr(p.billed)}</td>}
+              {worker && lm && (() => { const m = lm.byParty.get(p.id) ?? none; return <>
+                <td className="r">{m.present}</td>
+                <td className="r">{m.absent > 0 ? <span className="badge red">{m.absent}</span> : 0}</td>
+                <td className="r">{inr(m.paid)}</td>
+              </>; })()}
               <td className="r">{inr(p.paid)}</td>{!worker && <td className="r"><b>{owed(p.balance)}</b></td>}
               <td>{p.active ? <span className="badge green">Active</span> : <span className="badge red">Inactive</span>}</td>
               <td>
@@ -65,7 +74,7 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
                     </>
                   }
                 >
-                  <Link className="icon-link" href={`/admin/party/${p.id}`}>Statement</Link>
+                  <Link className="icon-link" href={`/admin/party/${p.id}${worker && sp.month ? `?month=${sp.month}` : ""}`}>Statement</Link>
                 </RowActions>
               </td>
             </tr>
@@ -73,7 +82,8 @@ export default async function Parties({ params, searchParams: sp }: { params: { 
           {rows.length === 0 && <tr><td colSpan={cols} className="muted">{all.length === 0 ? `No ${label} yet. Add one below.` : "Nothing matches these filters."}</td></tr>}
         </tbody>
       </table></div>
-      <Pager page={page} hasMore={matches.length > page * LIST_PAGE} base={`/admin/parties/${params.type}${qs({ q: sp.q, status, due: dueOnly ? "1" : "" })}`} />
+      <Pager page={page} hasMore={matches.length > page * LIST_PAGE} base={`/admin/parties/${params.type}${qs({ q: sp.q, status, due: dueOnly ? "1" : "", month: worker ? sp.month : "" })}`} />
+      {worker && lm && <p className="muted">Present and Absent count the days marked on <Link href="/w/attendance">Labour attendance</Link> in {lm.range.label}. Paid in {lm.range.label} counts labour payments dated in that month (cancelled ones are left out).</p>}
       <p className="muted">Click a name or Statement to see bills and payments. Names are checked for duplicates (case, spaces and punctuation are ignored). A party can be deleted only if it has no transactions.</p>
 
       <h2>Add {label.slice(0, -1)}</h2>

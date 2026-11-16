@@ -83,8 +83,23 @@ model Party {
   purchases      Purchase[]
   sales          Sale[]
   payments       Payment[]
+  attendance     Attendance[]
 
   @@unique([type, nameKey])
+}
+
+// 13. Labour attendance: one mark per labour per day. Admins and managers can mark or change it.
+model Attendance {
+  id         Int      @id @default(autoincrement())
+  partyId    String
+  party      Party    @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  present    Boolean
+  markedById String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([partyId, date])
+  @@index([date])
 }
 
 // 4-5. Purchases

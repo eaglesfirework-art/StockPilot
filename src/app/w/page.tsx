@@ -17,6 +17,7 @@ export default async function WorkerHome() {
         <Link href="/w/receive">Receive materials</Link>
         <Link href="/w/production">Production</Link>
         <Link href="/w/labour">Labour payment</Link>
+        <Link href="/w/attendance">Labour attendance</Link>
       </div>
       <h3>My recent entries</h3>
       {[...pur.map((p) => ({ t: p.createdAt, s: `${docNo("PUR", p.id)} · ${p.vendor.name} · ${inr(p.total)}`, c: !!p.cancelledAt })),
