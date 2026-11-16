@@ -24,7 +24,7 @@ export default async function Attendance({ searchParams }: { searchParams: { dat
         <label>Date<input type="date" name="date" defaultValue={date} max={today} /></label>
       </AutoForm>
       <p className="muted">
-        {dOnly(dayDate(date))} · {marked === 0 ? "Not marked yet. Everyone starts as Present: tap Absent for those who did not come." : `${marked} of ${workers.length} marked. Change any mark and save again.`}
+        {dOnly(dayDate(date))} · {marked === 0 ? "Not marked yet. Everyone starts as Absent: tap Present for those who came." : `${marked} of ${workers.length} marked. Change any mark and save again.`}
       </p>
       {workers.length === 0 ? (
         <p className="muted">No active labours. {u.role === "ADMIN" ? <Link href="/admin/parties/labours">Add labours</Link> : "Ask the admin to add labours."}</p>
@@ -33,7 +33,7 @@ export default async function Attendance({ searchParams }: { searchParams: { dat
           <input type="hidden" name="date" value={date} />
           <div className="att-list">
             {workers.map((w) => {
-              const present = saved.get(w.id) ?? true;
+              const present = saved.get(w.id) ?? false;
               return (
                 <fieldset key={w.id} className="att-row">
                   <legend>{w.name}{!saved.has(w.id) && <span className="badge amber">Not marked</span>}</legend>
